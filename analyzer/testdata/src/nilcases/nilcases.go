@@ -70,6 +70,9 @@ func (i *inner) unsafeOnNil() int {
 	return i.n
 }
 
+//nilfixture:shared
+func (i *inner) delegating() bool { return i.safeOnNil() } // want delegating:"nil-safe receiver"
+
 type embedded struct {
 	e int
 }
@@ -576,6 +579,40 @@ func callSafeOnNilReceiver() bool {
 	var i *inner
 
 	return i.safeOnNil()
+}
+
+// A method that only calls another nil-safe method on its own receiver is
+// nil-safe by delegation, not just the methods that guard directly.
+//
+//nilsafe:call-delegating-nil-safe-on-local
+func callDelegatingNilSafeOnLocal() bool {
+	var i *inner
+
+	return i.delegating()
+}
+
+// Nil-safety by delegation travels through a nil-origin receiver too, not only
+// a bare local whose nil origin was recorded in scope.
+//
+//nilsafe:call-nil-safe-on-call-result
+func callNilSafeOnCallResult() bool {
+	return mayReturnNil(false).safeOnNil()
+}
+
+// The near miss: a nil-origin call result is safe only for the specific method
+// that proves it tolerates a nil receiver, not for any call reached through it.
+//
+//nilhazard:call-unsafe-on-call-result sites=1
+func callUnsafeOnCallResult() int {
+	return mayReturnNil(false).unsafeOnNil() // want "mayReturnNil\\(false\\) may be nil here"
+}
+
+// A field selection through a nil-origin expression is still a dereference,
+// nil-safe-receiver fact or not.
+//
+//nilhazard:field-on-call-result sites=1
+func fieldOnCallResult() int {
+	return mayReturnNil(false).n // want "mayReturnNil\\(false\\) may be nil here"
 }
 
 // The embedded pointer is nil, and the promoted field reads through it.

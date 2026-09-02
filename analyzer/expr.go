@@ -117,13 +117,20 @@ func (c *checker) checkBase(base ast.Expr, site useSite, sc scope) {
 // checkNilOriginBase reports a base with no canonical path whose own expression
 // shape is a nil origin (a map/slice index, a single-form type assertion), for the
 // use kinds where the base itself being nil is the hazard: a field/method
-// selection or an explicit dereference — m["k"].n, s[0].n, v.(*inner).n.
+// selection or an explicit dereference — m["k"].n, s[0].n, v.(*inner).n. The one
+// use that stays silent is a method call on the nil-origin base whose callee
+// itself carries the nilSafeReceiver fact, the same exception checkKnownNil
+// makes for a bare local whose own nil origin was recorded in scope.
 func (c *checker) checkNilOriginBase(base ast.Expr, site useSite) {
 	if site.kind != useSelector && site.kind != useStar {
 		return
 	}
 
 	if !c.isNilOrigin(base) {
+		return
+	}
+
+	if site.kind == useSelector && c.methodHasNilSafeReceiver(site.sel) {
 		return
 	}
 
@@ -137,12 +144,22 @@ func (c *checker) checkNilOriginBase(base ast.Expr, site useSite) {
 // call on an unchecked `error`) — everything else bare stays silent, because this
 // analyzer is about fields reached through a struct, which is where the guard is
 // easy to forget, not about auditing every parameter in the program.
+//
+// A use of the enclosing method's own receiver is the one path this probes
+// during exportNilSafeReceiverFact's silent walk: it marks the receiver
+// dereferenced unless the use is a call to another method that itself carries
+// the nilSafeReceiver fact, which is what makes nil-safety transitive through a
+// delegating method.
 func (c *checker) checkPath(path string, t types.Type, site useSite, sc scope) {
 	if sc.proven[path] {
 		return
 	}
 
 	if c.receiver != "" && path == c.receiver {
+		if site.kind == useSelector && c.methodHasNilSafeReceiver(site.sel) {
+			return
+		}
+
 		c.receiverDeref = true
 
 		return

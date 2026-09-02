@@ -97,7 +97,6 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 
 	for _, fd := range funcDecls {
 		c.exportValidatorFact(fd)
-		c.exportNilSafeReceiverFact(fd)
 		c.exportNilResultsFact(fd)
 	}
 
@@ -110,6 +109,10 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 			}
 
 			if c.exportAssertHelperFact(fd) {
+				exportedNew = true
+			}
+
+			if c.exportNilSafeReceiverFact(fd) {
 				exportedNew = true
 			}
 		}

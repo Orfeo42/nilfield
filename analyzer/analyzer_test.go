@@ -46,6 +46,10 @@ func TestAnalyzer(t *testing.T) {
 	t.Run("excluded path reports nothing", func(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), New(Config{ExcludePaths: "src/excluded/"}), "excluded")
 	})
+
+	t.Run("nil-safe receiver is transitive through a delegating method", func(t *testing.T) {
+		analysistest.Run(t, analysistest.TestData(), New(Config{}), "nilsafereceiver")
+	})
 }
 
 func TestSplitFragments(t *testing.T) {

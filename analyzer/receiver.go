@@ -19,6 +19,16 @@ func (*nilSafeReceiver) String() string { return "nil-safe receiver" }
 // receiver were nil. It probes the body with a separate silent checker so the
 // probe's own traversal reports no diagnostics and exports no facts of its own.
 // It returns whether it exported a fact that was not already recorded.
+//
+// A call to another method through the receiver counts as safe, not as a
+// dereference, when that callee itself already carries the nilSafeReceiver
+// fact (checkPath consults it). That makes the fact transitive across a
+// delegating method, and it is why this export runs inside run's fixpoint loop
+// alongside exportNeverReturnsFact and exportAssertHelperFact rather than in
+// the single pre-pass: a method's own qualification can depend on another
+// method's fact not yet exported on an earlier iteration. A receiver that calls
+// itself never qualifies, since no pass ever finds the fact already exported
+// for it — that is the correct conservative answer, not a bug to special-case.
 func (c *checker) exportNilSafeReceiverFact(fd *ast.FuncDecl) bool {
 	if fd.Body == nil {
 		return false
