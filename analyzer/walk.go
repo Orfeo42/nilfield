@@ -216,7 +216,7 @@ func (c *checker) nilOriginState(lhs ast.Expr, rhs ast.Expr, sc scope) (nilState
 		}
 	}
 
-	if c.isNilOrigin(rhs) {
+	if c.isNilOrigin(rhs, sc) {
 		return maybeNil, true
 	}
 
@@ -247,7 +247,7 @@ func (c *checker) assignsTypedNilToInterface(lhs ast.Expr, rhs ast.Expr) bool {
 // zero value which may itself be nil: a map or slice index whose element type is
 // nillable, or a single-form type assertion (as opposed to the `.(type)` switch
 // form, whose Type field is nil) to a nillable type.
-func (c *checker) isNilOrigin(expr ast.Expr) bool {
+func (c *checker) isNilOrigin(expr ast.Expr, sc scope) bool {
 	expr = ast.Unparen(expr)
 
 	switch e := expr.(type) {
@@ -274,7 +274,7 @@ func (c *checker) isNilOrigin(expr ast.Expr) bool {
 
 		return t != nil && isNillableKind(t)
 	case *ast.CallExpr:
-		if !slices.Contains(c.calleeNilResults(e), 0) {
+		if !slices.Contains(c.nilableResultIndexes(e, sc), 0) {
 			return false
 		}
 

@@ -36,12 +36,18 @@ import (
 	"go/ast"
 	"go/types"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
+
+// generatedFileMarker is the same convention cmd/go and the rest of the Go
+// ecosystem use to recognise generated source: a line matching this pattern,
+// appearing before the package clause.
+var generatedFileMarker = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // Config holds the flags New wires onto the analyzer it builds.
 type Config struct {
@@ -83,10 +89,11 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	c := &checker{
-		pass:         pass,
-		excludePaths: splitFragments(cfg.ExcludePaths),
-		walked:       map[*ast.FuncLit]bool{},
-		resolve:      pass.TypesInfo.ObjectOf,
+		pass:           pass,
+		excludePaths:   splitFragments(cfg.ExcludePaths),
+		walked:         map[*ast.FuncLit]bool{},
+		resolve:        pass.TypesInfo.ObjectOf,
+		generatedFiles: generatedFiles(pass),
 	}
 
 	var funcDecls []*ast.FuncDecl
@@ -121,6 +128,8 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 			break
 		}
 	}
+
+	c.wired = c.computeWiredFields()
 
 	nodeFilter := []ast.Node{
 		(*ast.FuncDecl)(nil),
@@ -167,13 +176,15 @@ func splitFragments(raw string) []string {
 }
 
 type checker struct {
-	pass          *analysis.Pass
-	excludePaths  []string
-	walked        map[*ast.FuncLit]bool
-	resolve       func(*ast.Ident) types.Object
-	silent        bool
-	receiver      string
-	receiverDeref bool
+	pass           *analysis.Pass
+	excludePaths   []string
+	walked         map[*ast.FuncLit]bool
+	resolve        func(*ast.Ident) types.Object
+	silent         bool
+	receiver       string
+	receiverDeref  bool
+	wired          map[*types.Var]bool
+	generatedFiles map[string]bool
 }
 
 func (c *checker) isExcluded(filename string) bool {
@@ -183,9 +194,49 @@ func (c *checker) isExcluded(filename string) bool {
 		return true
 	}
 
+	if c.generatedFiles[normalized] {
+		return true
+	}
+
 	for _, fragment := range c.excludePaths {
 		if strings.Contains(normalized, fragment) {
 			return true
+		}
+	}
+
+	return false
+}
+
+// generatedFiles returns the set of files in pass, keyed by their
+// slash-normalized path, whose comments carry the Go ecosystem's generated-
+// code marker before the package clause: reporting in generated code is
+// unactionable, since the fix belongs in the generator, not the output. This
+// is a convention, not a configurable exclusion, so it needs no flag and no
+// way to turn it off.
+func generatedFiles(pass *analysis.Pass) map[string]bool {
+	out := map[string]bool{}
+
+	for _, file := range pass.Files {
+		if isGeneratedFile(file) {
+			out[filepath.ToSlash(pass.Fset.Position(file.Package).Filename)] = true
+		}
+	}
+
+	return out
+}
+
+// isGeneratedFile reports whether file carries a comment line matching
+// generatedFileMarker before its package clause.
+func isGeneratedFile(file *ast.File) bool {
+	for _, group := range file.Comments {
+		if group.End() >= file.Package {
+			continue
+		}
+
+		for _, comment := range group.List {
+			if generatedFileMarker.MatchString(comment.Text) {
+				return true
+			}
 		}
 	}
 

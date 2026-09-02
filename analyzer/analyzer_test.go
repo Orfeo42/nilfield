@@ -50,6 +50,14 @@ func TestAnalyzer(t *testing.T) {
 	t.Run("nil-safe receiver is transitive through a delegating method", func(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), New(Config{}), "nilsafereceiver")
 	})
+
+	t.Run("a field wired non-nil by every construction in the package is not reported", func(t *testing.T) {
+		analysistest.Run(t, analysistest.TestData(), New(Config{}), "fieldwiring")
+	})
+
+	t.Run("a file generated before the package clause is skipped, others are not", func(t *testing.T) {
+		analysistest.Run(t, analysistest.TestData(), New(Config{}), "generated")
+	})
 }
 
 func TestSplitFragments(t *testing.T) {

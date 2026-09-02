@@ -104,9 +104,13 @@ func (c *checker) checkBase(base ast.Expr, site useSite, sc scope) {
 		return
 	}
 
+	if c.isWiredFieldAccess(base) {
+		return
+	}
+
 	path, ok := canonicalPath(base, sc.alias)
 	if !ok {
-		c.checkNilOriginBase(base, site)
+		c.checkNilOriginBase(base, site, sc)
 
 		return
 	}
@@ -121,12 +125,12 @@ func (c *checker) checkBase(base ast.Expr, site useSite, sc scope) {
 // use that stays silent is a method call on the nil-origin base whose callee
 // itself carries the nilSafeReceiver fact, the same exception checkKnownNil
 // makes for a bare local whose own nil origin was recorded in scope.
-func (c *checker) checkNilOriginBase(base ast.Expr, site useSite) {
+func (c *checker) checkNilOriginBase(base ast.Expr, site useSite, sc scope) {
 	if site.kind != useSelector && site.kind != useStar {
 		return
 	}
 
-	if !c.isNilOrigin(base) {
+	if !c.isNilOrigin(base, sc) {
 		return
 	}
 

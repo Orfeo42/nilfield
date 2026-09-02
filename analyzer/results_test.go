@@ -96,3 +96,129 @@ func f() error { return nil }
 		}
 	})
 }
+
+// computeSnippetNilResultsFact type-checks src, which must declare a single
+// function, and runs computeNilResultsFact on it.
+func computeSnippetNilResultsFact(t *testing.T, src string) (*nilResults, bool) {
+	t.Helper()
+
+	fd, info := parseAndCheck(t, src)
+	c := newSnippetChecker(info)
+
+	fn, isFunc := info.Defs[fd.Name].(*types.Func)
+	if !isFunc {
+		t.Fatal("snippet function has no *types.Func object")
+	}
+
+	return c.computeNilResultsFact(fd, fn)
+}
+
+func TestComputeNilResultsFact(t *testing.T) {
+	t.Run("nil-yielding return dominated by a nil-parameter guard is conditional", func(t *testing.T) {
+		fact, ok := computeSnippetNilResultsFact(t, `package p
+
+type T struct{}
+
+func f(e *T) *T {
+	if e == nil {
+		return nil
+	}
+
+	return e
+}
+`)
+		if !ok {
+			t.Fatal("computeNilResultsFact() ok = false, want true")
+		}
+
+		if len(fact.Results) != 0 {
+			t.Fatalf("fact.Results = %v, want none", fact.Results)
+		}
+
+		if fact.NilWhenParamNil[0] != 0 {
+			t.Fatalf("fact.NilWhenParamNil = %v, want {0: 0}", fact.NilWhenParamNil)
+		}
+	})
+
+	t.Run("nil-yielding return unrelated to any parameter stays unconditional", func(t *testing.T) {
+		fact, ok := computeSnippetNilResultsFact(t, `package p
+
+type T struct{}
+
+func f(ok bool) *T {
+	if !ok {
+		return nil
+	}
+
+	return &T{}
+}
+`)
+		if !ok {
+			t.Fatal("computeNilResultsFact() ok = false, want true")
+		}
+
+		if len(fact.Results) != 1 || fact.Results[0] != 0 {
+			t.Fatalf("fact.Results = %v, want [0]", fact.Results)
+		}
+
+		if len(fact.NilWhenParamNil) != 0 {
+			t.Fatalf("fact.NilWhenParamNil = %v, want none", fact.NilWhenParamNil)
+		}
+	})
+
+	t.Run("one of two nil-yielding returns lacks a parameter guard, stays unconditional", func(t *testing.T) {
+		fact, ok := computeSnippetNilResultsFact(t, `package p
+
+type T struct{}
+
+func f(e *T, ok bool) *T {
+	if e == nil {
+		return nil
+	}
+
+	if !ok {
+		return nil
+	}
+
+	return e
+}
+`)
+		if !ok {
+			t.Fatal("computeNilResultsFact() ok = false, want true")
+		}
+
+		if len(fact.Results) != 1 || fact.Results[0] != 0 {
+			t.Fatalf("fact.Results = %v, want [0]", fact.Results)
+		}
+
+		if len(fact.NilWhenParamNil) != 0 {
+			t.Fatalf("fact.NilWhenParamNil = %v, want none", fact.NilWhenParamNil)
+		}
+	})
+
+	t.Run("guard on a different parameter than the caller expects", func(t *testing.T) {
+		fact, ok := computeSnippetNilResultsFact(t, `package p
+
+type T struct{}
+
+func f(e *T, other *T) *T {
+	if other == nil {
+		return nil
+	}
+
+	return e
+}
+`)
+		if !ok {
+			t.Fatal("computeNilResultsFact() ok = false, want true")
+		}
+
+		if len(fact.Results) != 0 {
+			t.Fatalf("fact.Results = %v, want none", fact.Results)
+		}
+
+		if fact.NilWhenParamNil[0] != 1 {
+			t.Fatalf("fact.NilWhenParamNil = %v, want {0: 1}", fact.NilWhenParamNil)
+		}
+	})
+}

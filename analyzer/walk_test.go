@@ -38,7 +38,7 @@ func f(m map[string]*T) *T {
 
 		c := newSnippetChecker(info)
 
-		if !c.isNilOrigin(returnExpr(t, fd)) {
+		if !c.isNilOrigin(returnExpr(t, fd), newScope()) {
 			t.Fatal("isNilOrigin(map[string]*T index) = false, want true")
 		}
 	})
@@ -55,7 +55,7 @@ func f(s []*T) *T {
 
 		c := newSnippetChecker(info)
 
-		if !c.isNilOrigin(returnExpr(t, fd)) {
+		if !c.isNilOrigin(returnExpr(t, fd), newScope()) {
 			t.Fatal("isNilOrigin([]*T index) = false, want true")
 		}
 	})
@@ -70,7 +70,7 @@ func f(m map[string]int) int {
 
 		c := newSnippetChecker(info)
 
-		if c.isNilOrigin(returnExpr(t, fd)) {
+		if c.isNilOrigin(returnExpr(t, fd), newScope()) {
 			t.Fatal("isNilOrigin(map[string]int index) = true, want false")
 		}
 	})
@@ -87,7 +87,7 @@ func f(v any) *T {
 
 		c := newSnippetChecker(info)
 
-		if !c.isNilOrigin(returnExpr(t, fd)) {
+		if !c.isNilOrigin(returnExpr(t, fd), newScope()) {
 			t.Fatal("isNilOrigin(v.(*T)) = false, want true")
 		}
 	})
@@ -102,7 +102,7 @@ func f(v any) int {
 
 		c := newSnippetChecker(info)
 
-		if c.isNilOrigin(returnExpr(t, fd)) {
+		if c.isNilOrigin(returnExpr(t, fd), newScope()) {
 			t.Fatal("isNilOrigin(v.(int)) = true, want false")
 		}
 	})
