@@ -50,7 +50,13 @@ jobs:
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 
+      # CGO_ENABLED=0 so the asset is statically linked. golangci-lint custom
+      # otherwise builds with cgo, producing a binary tied to the builder's
+      # glibc, which fails on a musl image and on any glibc older than the
+      # runner's. Static means it runs on whatever linux/amd64 a consumer has.
       - name: Build custom-gcl
+        env:
+          CGO_ENABLED: "0"
         run: golangci-lint custom
 
       - name: Rename asset
