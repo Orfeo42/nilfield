@@ -1,0 +1,7 @@
+version: v2.13.2
+name: custom-gcl
+destination: .cache
+plugins:
+  - module: 'github.com/Orfeo42/nilfield'
+    path: .
+    import: 'github.com/Orfeo42/nilfield/plugin'

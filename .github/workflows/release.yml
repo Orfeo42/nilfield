@@ -25,3 +25,31 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  custom-gcl:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2
+          install-mode: binary
+
+      - name: Build custom-gcl
+        run: golangci-lint custom
+
+      - name: Rename asset
+        run: mv .cache/custom-gcl custom-gcl-linux-amd64
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" custom-gcl-linux-amd64 --clobber

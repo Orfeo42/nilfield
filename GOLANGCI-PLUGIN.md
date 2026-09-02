@@ -102,6 +102,8 @@ The plugin does not run on a stock golangci-lint binary. Every consumer — ever
 - Editor integrations point at `golangci-lint` by name. Each developer reconfigures, or the custom binary is installed under that name, which then shadows the real one.
 - A golangci-lint upgrade is now a two-sided upgrade: bump `version:` in `.custom-gcl.yml` and rebuild, and reconcile `x/tools` if it moved.
 
+For linux/amd64 the per-consumer `custom-gcl` build is no longer required: this repository's release workflow runs `golangci-lint custom` against the `.custom-gcl.yml` checked in here and publishes the resulting binary as the `custom-gcl-linux-amd64` release asset, so a consumer on that platform downloads it instead of compiling it. The golangci-lint version pin also moved with it, from each consumer's own config into this repository's `.custom-gcl.yml`, so bumping it is a change here, not in every consumer. Other platforms, and any consumer who wants to build from source, still go through `golangci-lint custom` themselves.
+
 Against that, what the plugin buys is: one binary instead of two in CI, findings in golangci-lint's output format, and `nolint` directives working on `nilfield` findings the same way they work everywhere else.
 
 ## The alternative that costs nothing

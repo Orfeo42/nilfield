@@ -14,6 +14,8 @@ go install github.com/Orfeo42/nilfield/cmd/nilfield@latest
 
 Or download a prebuilt binary from a [GitHub release](https://github.com/Orfeo42/nilfield/releases).
 
+To run `nilfield` as a golangci-lint module plugin, either build your own `custom-gcl` with `golangci-lint custom` against the `.custom-gcl.yml` in this repository, or download the prebuilt `custom-gcl-linux-amd64` asset from a [GitHub release](https://github.com/Orfeo42/nilfield/releases), which pins golangci-lint v2.13.2. See [`GOLANGCI-PLUGIN.md`](GOLANGCI-PLUGIN.md) for the plugin contract and configuration.
+
 ## Run
 
 ```sh
@@ -101,6 +103,10 @@ An out-of-scope case fails its own subtest if the analyzer reports anything insi
 
 - [`REQUIREMENTS.md`](REQUIREMENTS.md), the scope and design record: what the analyzer reports, the mechanism behind each capability, and what was deliberately excluded and why.
 - [`GOLANGCI-PLUGIN.md`](GOLANGCI-PLUGIN.md), an evaluation of shipping this as a golangci-lint module plugin: what the contract requires, what it costs consumers, and the recommendation.
+
+## License
+
+The analyzer source in this repository is MIT-licensed, see [`LICENSE`](LICENSE). The published `custom-gcl-linux-amd64` release asset statically links golangci-lint (GPL-3.0) with this plugin and is distributed under GPL-3.0, see [`NOTICE.md`](NOTICE.md).
 
 ## Development
 
