@@ -69,7 +69,6 @@ linters:
         type: module
         description: reports dereferences of pointer-typed struct fields with no nil guard
         settings:
-          assert-package: example.com/app/utility
           exclude-paths: internal/dao/
 ```
 
@@ -77,9 +76,9 @@ linters:
 
 Four changes, none of them large.
 
-1. **Move the analyzer out of `package main`.** `Analyzer` currently lives beside `func main()`, which the plugin cannot import. Split into `analyzer/` holding `Analyzer` and `run`, and `cmd/nilfield/` holding the four-line `singlechecker.Main`. The standalone binary keeps working; `go install github.com/Orfeo42/nilfield/cmd/nilfield@latest` replaces the current install path.
+1. **Done.** The analyzer moved out of `package main`. `Analyzer` and `run` now live in `analyzer/` (`github.com/Orfeo42/nilfield/analyzer`, exported `analyzer.Analyzer` and `analyzer.New(analyzer.Config{...})`), and `cmd/nilfield/main.go` holds the four-line `singlechecker.Main`. The standalone binary keeps working: `go install github.com/Orfeo42/nilfield/cmd/nilfield@latest`.
 
-2. **Take configuration from a struct, not from package-level flag variables.** `assertPackageFlag` and `excludePathsFlag` are package vars bound through `Analyzer.Flags`. `singlechecker` fills them from the command line; a plugin has to fill them from `DecodeSettings`. Make the analyzer read a config struct, have `Analyzer.Flags` write into an instance of it for the CLI, and have the plugin construct one from its settings. The tests already swap these values through `withFlags`, so the test seam survives the change.
+2. **Done.** Configuration now comes from a struct, not from package-level flag variables. `analyzer.Config` holds `ExcludePaths` (the only setting left, see below), `analyzer.New(cfg)` builds an analyzer whose `Flags` write into that instance for the CLI, and a plugin can construct a `Config` from `DecodeSettings` the same way. The test seam survived the change.
 
 3. **Add the plugin package.** One file implementing the interface above, in its own package so the standalone binary does not carry the `plugin-module-register` dependency.
 
@@ -121,6 +120,6 @@ Steps 1 and 2 — splitting the analyzer out of `package main` and taking config
 
 Step 3, the plugin package, is cheap to add once step 1 is done and does not have to be adopted to exist. Add it when there is a consumer who wants findings inside golangci-lint's output badly enough to build `custom-gcl` in CI.
 
-The ordering argument is coverage, not effort. At **27 of 56 corpus cases** the analyzer's problem is what it catches, not how it is invoked. Packaging a linter that misses half the corpus more conveniently does not make it more useful. `REQUIREMENTS.md` has the build order; steps 1-5 there take the figure to roughly 38/56 without leaving the AST. Revisit the plugin after that.
+The ordering argument used to be coverage, not effort: at 27 of 56 corpus cases, packaging a linter that missed half the corpus more conveniently would not have made it more useful. That argument no longer applies. The corpus is fully covered, **56 of 56 cases (62 of 62 sites)**, with zero false positives, so the analyzer's problem is no longer what it catches. What is left is purely the consumer-cost trade-off laid out above: a plugin costs every consumer a `custom-gcl` build and a two-sided upgrade path, in exchange for one binary in CI, golangci-lint's output format, and working `nolint` directives. Decide step 3 on that trade-off alone, whenever there is a consumer who wants it badly enough.
 
-One caveat if the plugin does ship: `nilfield` overlaps with nothing golangci-lint already runs. Measured against this corpus, `govet`'s `nilness` and `nilfunc` cover 5 sites and `nilfield` covers 30, with **zero** overlap between them. Whatever the packaging, they are complements — do not present `nilfield` as a replacement for either.
+One caveat if the plugin does ship: `nilfield` is not a pure addition to what golangci-lint already runs. Measured against this corpus, `govet`'s `nilness` and `nilfunc` cover 5 sites, and `nilfield` now covers those same 5 sites itself alongside the other 57. Whatever the packaging, present `nilfield` as a complement that happens to overlap on a handful of sites, not as a replacement for either `govet` pass.
