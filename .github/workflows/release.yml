@@ -34,9 +34,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Not go-version-file: go.mod. This module builds with Go 1.25, but
+      # golangci-lint v2.13.2 requires Go >= 1.26, and this job compiles
+      # golangci-lint twice: once via go install, once inside
+      # `golangci-lint custom`. setup-go pins GOTOOLCHAIN=local, so an older
+      # toolchain here fails outright rather than fetching a newer one.
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.27"
 
       # golangci-lint-action always runs the linter and has no install-only mode,
       # so a lint failure there would block publishing the asset. Install the
