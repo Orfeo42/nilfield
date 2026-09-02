@@ -67,7 +67,7 @@ linters:
     custom:
       nilfield:
         type: module
-        description: reports dereferences of pointer-typed struct fields with no nil guard
+        description: reports a nil pointer or a nil interface being dereferenced
         settings:
           exclude-paths: internal/dao/
 ```
@@ -114,12 +114,12 @@ It runs as its own step, needs no custom golangci-lint, breaks on no upgrade, an
 
 ## Recommendation
 
-**Do the refactor, defer the plugin.**
+**Keep shipping the standalone binary and `-vettool`; defer the plugin.**
 
-Steps 1 and 2 — splitting the analyzer out of `package main` and taking configuration from a struct — are worth doing regardless. They are what make the analyzer importable, which is the precondition for the plugin, for `-vettool`, and for anyone embedding it in their own multichecker. They cost an afternoon and improve the project on their own terms.
+Steps 1 and 2 are done, and they were worth doing regardless of the plugin question: splitting the analyzer out of `package main` and taking configuration from a struct is what makes the analyzer importable, which is the precondition for `-vettool`, for the plugin, and for anyone embedding it in their own multichecker.
 
-Step 3, the plugin package, is cheap to add once step 1 is done and does not have to be adopted to exist. Add it when there is a consumer who wants findings inside golangci-lint's output badly enough to build `custom-gcl` in CI.
+Step 3, the plugin package, is cheap to add on top of that and does not have to be adopted to exist. Add it when there is a consumer who wants findings inside golangci-lint's output badly enough to build `custom-gcl` in CI.
 
-The ordering argument used to be coverage, not effort: at 27 of 56 corpus cases, packaging a linter that missed half the corpus more conveniently would not have made it more useful. That argument no longer applies. The corpus is fully covered, **56 of 56 cases (62 of 62 sites)**, with zero false positives, so the analyzer's problem is no longer what it catches. What is left is purely the consumer-cost trade-off laid out above: a plugin costs every consumer a `custom-gcl` build and a two-sided upgrade path, in exchange for one binary in CI, golangci-lint's output format, and working `nolint` directives. Decide step 3 on that trade-off alone, whenever there is a consumer who wants it badly enough.
+The ordering argument used to be coverage, not effort: early on, packaging a linter that missed a large share of the corpus more conveniently would not have made it more useful. That argument no longer applies. The corpus is fully covered within its scope, **43 of 43 hazard cases (47 of 47 sites)**, with zero false positives, and releases now ship prebuilt binaries for every consumer to download directly. So the analyzer's problem is no longer what it catches, and the packaging question is no longer gated on effort either. What is left is purely the consumer-cost trade-off laid out above: a plugin costs every consumer a `custom-gcl` build and a two-sided upgrade path, in exchange for one binary in CI, golangci-lint's output format, and working `nolint` directives. Decide step 3 on that trade-off alone, whenever there is a consumer who wants it badly enough; until then, keep shipping the standalone binary and `-vettool`.
 
-One caveat if the plugin does ship: `nilfield` is not a pure addition to what golangci-lint already runs. Measured against this corpus, `govet`'s `nilness` and `nilfunc` cover 5 sites, and `nilfield` now covers those same 5 sites itself alongside the other 57. Whatever the packaging, present `nilfield` as a complement that happens to overlap on a handful of sites, not as a replacement for either `govet` pass.
+One thing that is no longer a caveat: `nilfield`'s scope is a nil pointer or a nil interface being dereferenced, and nothing else. It does not track a nil map, slice, channel or func value at all, so it does not overlap with what `govet`'s `nilness` and `nilfunc` passes already cover in a default golangci-lint run. Whatever the packaging, `nilfield` is a plain addition to what golangci-lint already runs, not a partial replacement for either `govet` pass.
