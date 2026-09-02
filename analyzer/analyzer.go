@@ -130,21 +130,18 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 		switch f := n.(type) {
 		case *ast.FuncDecl:
 			body = f.Body
-			c.sig = c.declSignature(f)
 		case *ast.FuncLit:
 			if c.walked[f] {
 				return
 			}
 
 			body = f.Body
-			c.sig, _ = c.pass.TypesInfo.TypeOf(f).(*types.Signature)
 		}
 
 		if body == nil {
 			return
 		}
 
-		c.checkConstruction(body)
 		c.walk(body.List, newScope())
 	})
 
@@ -174,7 +171,6 @@ type checker struct {
 	silent        bool
 	receiver      string
 	receiverDeref bool
-	sig           *types.Signature
 }
 
 func (c *checker) isExcluded(filename string) bool {

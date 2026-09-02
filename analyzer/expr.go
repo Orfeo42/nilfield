@@ -6,19 +6,16 @@ import (
 	"go/types"
 )
 
-// useKind names the way an expression's base is used at a call/access site, which
-// determines which nillable kinds are hazardous there: a call site cares about
-// funcs, a map-write site cares about maps, and so on.
+// useKind names the way an expression's base is used at a field-access site: a
+// field or method selected through it, or an explicit dereference of it. These
+// are the only two shapes nilfield reports on: a nil pointer or nil interface
+// being dereferenced. A nil map, slice, channel or func value is a different
+// hazard class and out of scope.
 type useKind int
 
 const (
-	useSelector   useKind = iota // field or method selected through the base
-	useStar                      // explicit *base
-	useCall                      // base is a func VALUE being called
-	useMapWrite                  // base is a map being written through an index
-	useSliceIndex                // base is a slice being indexed (read)
-	useChanSend
-	useChanClose
+	useSelector useKind = iota // field or method selected through the base
+	useStar                    // explicit *base
 )
 
 // useSite bundles a use's position and kind with the selector expression it was
@@ -51,10 +48,6 @@ func (c *checker) checkExpr(expr ast.Expr, sc scope) {
 
 			return false
 		case *ast.BinaryExpr:
-			if e.Op == token.EQL || e.Op == token.NEQ {
-				c.checkFuncNilComparison(e)
-			}
-
 			if e.Op != token.LAND && e.Op != token.LOR {
 				return true
 			}
@@ -67,10 +60,6 @@ func (c *checker) checkExpr(expr ast.Expr, sc scope) {
 			c.checkPromotedField(e, sc)
 		case *ast.StarExpr:
 			c.checkBase(e.X, useSite{pos: e.Pos(), kind: useStar}, sc)
-		case *ast.CallExpr:
-			c.checkCall(e, sc)
-		case *ast.IndexExpr:
-			c.checkSliceIndex(e, sc)
 		}
 
 		return true
@@ -101,33 +90,6 @@ func (c *checker) checkShortCircuit(e *ast.BinaryExpr, sc scope) {
 	c.checkExpr(e.Y, sc.with(reached))
 }
 
-// checkFuncNilComparison reports a `fn != nil` / `fn == nil` comparison whose
-// non-nil operand is a declared function identifier, since a package-level func
-// is never nil and the comparison always evaluates the same way.
-func (c *checker) checkFuncNilComparison(e *ast.BinaryExpr) {
-	var other ast.Expr
-
-	switch {
-	case c.isNilIdent(e.Y):
-		other = e.X
-	case c.isNilIdent(e.X):
-		other = e.Y
-	default:
-		return
-	}
-
-	id, isIdent := ast.Unparen(other).(*ast.Ident)
-	if !isIdent {
-		return
-	}
-
-	if _, isFunc := c.resolve(id).(*types.Func); !isFunc {
-		return
-	}
-
-	c.report(e.Pos(), "%s is never nil", id.Name)
-}
-
 // checkBase resolves base to a canonical path and hands it, together with the way
 // it is being used, to checkPath. A base with no canonical path (a call result, an
 // index expression, ...) is checked instead against isNilOrigin, since a map/slice
@@ -155,10 +117,9 @@ func (c *checker) checkBase(base ast.Expr, site useSite, sc scope) {
 // checkNilOriginBase reports a base with no canonical path whose own expression
 // shape is a nil origin (a map/slice index, a single-form type assertion), for the
 // use kinds where the base itself being nil is the hazard: a field/method
-// selection, an explicit dereference, or a call through it — m["k"].n, s[0].n,
-// v.(*inner).n, m["k"]().
+// selection or an explicit dereference — m["k"].n, s[0].n, v.(*inner).n.
 func (c *checker) checkNilOriginBase(base ast.Expr, site useSite) {
-	if site.kind != useSelector && site.kind != useStar && site.kind != useCall {
+	if site.kind != useSelector && site.kind != useStar {
 		return
 	}
 
@@ -238,22 +199,12 @@ func (c *checker) methodHasNilSafeReceiver(sel *ast.SelectorExpr) bool {
 }
 
 func (c *checker) checkFieldOrStarUse(path string, t types.Type, pos token.Pos, use useKind) {
-	underlying := t.Underlying()
-
 	switch use {
 	case useStar:
 		c.report(pos, "%s may be nil here", path)
 	case useSelector:
-		switch underlying.(type) {
+		switch t.Underlying().(type) {
 		case *types.Pointer, *types.Interface:
-			c.report(pos, "%s may be nil here", path)
-		}
-	case useCall:
-		if _, isSignature := underlying.(*types.Signature); isSignature {
-			c.report(pos, "%s may be nil here", path)
-		}
-	case useMapWrite:
-		if _, isMap := underlying.(*types.Map); isMap {
 			c.report(pos, "%s may be nil here", path)
 		}
 	}
@@ -328,58 +279,4 @@ func derefType(t types.Type) types.Type {
 	}
 
 	return u
-}
-
-// checkCall reports a call through a func VALUE (a variable or a struct field of
-// function type), as opposed to a declared function, a method, or a conversion,
-// none of which are a "use" in the sense checkPath cares about.
-func (c *checker) checkCall(e *ast.CallExpr, sc scope) {
-	fun := ast.Unparen(e.Fun)
-
-	if id, isIdent := fun.(*ast.Ident); isIdent && isUniverse(c.resolve(id), "close") && len(e.Args) == 1 {
-		c.checkBase(e.Args[0], useSite{pos: e.Pos(), kind: useChanClose}, sc)
-
-		return
-	}
-
-	switch callee := fun.(type) {
-	case *ast.Ident:
-		if _, isVar := c.resolve(callee).(*types.Var); isVar {
-			c.checkBase(fun, useSite{pos: e.Lparen, kind: useCall}, sc)
-		}
-	case *ast.SelectorExpr:
-		c.checkSelectorCall(fun, callee, e.Lparen, sc)
-	}
-}
-
-// checkSelectorCall handles the two shapes of a selector callee that is a func
-// value rather than a method: a field of function type (Selections carries a
-// FieldVal kind), and a package-qualified function variable (no Selection entry
-// at all, since it is not a selection into a type).
-func (c *checker) checkSelectorCall(fun ast.Expr, sel *ast.SelectorExpr, pos token.Pos, sc scope) {
-	selection := c.pass.TypesInfo.Selections[sel]
-	if selection != nil {
-		if selection.Kind() == types.FieldVal {
-			c.checkBase(fun, useSite{pos: pos, kind: useCall}, sc)
-		}
-
-		return
-	}
-
-	if _, isVar := c.pass.TypesInfo.ObjectOf(sel.Sel).(*types.Var); isVar {
-		c.checkBase(fun, useSite{pos: pos, kind: useCall}, sc)
-	}
-}
-
-func (c *checker) checkSliceIndex(e *ast.IndexExpr, sc scope) {
-	t := c.pass.TypesInfo.TypeOf(e.X)
-	if t == nil {
-		return
-	}
-
-	if _, isSlice := t.Underlying().(*types.Slice); !isSlice {
-		return
-	}
-
-	c.checkBase(e.X, useSite{pos: e.Lbrack, kind: useSliceIndex}, sc)
 }

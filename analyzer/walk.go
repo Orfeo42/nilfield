@@ -29,8 +29,6 @@ func (c *checker) walkStmt(stmt ast.Stmt, sc scope) {
 		for _, r := range s.Results {
 			c.checkExpr(r, sc)
 		}
-
-		c.checkReturn(s, sc)
 	case *ast.IfStmt:
 		c.walkIf(s, sc)
 	case *ast.BlockStmt:
@@ -52,11 +50,9 @@ func (c *checker) walkStmt(stmt ast.Stmt, sc scope) {
 	case *ast.GoStmt:
 		c.walkGo(s, sc)
 	case *ast.SendStmt:
-		c.checkBase(s.Chan, useSite{pos: s.Arrow, kind: useChanSend}, sc)
 		c.checkExpr(s.Chan, sc)
 		c.checkExpr(s.Value, sc)
 	case *ast.IncDecStmt:
-		c.checkMapIndexTarget(s.X, sc)
 		c.checkExpr(s.X, sc)
 	default:
 		// Backstop so a statement kind nobody wired up explicitly still gets its
@@ -121,10 +117,6 @@ func (c *checker) walkAssign(s *ast.AssignStmt, sc scope) {
 	}
 
 	for _, lhs := range s.Lhs {
-		c.checkMapIndexTarget(lhs, sc)
-	}
-
-	for _, lhs := range s.Lhs {
 		c.checkExpr(lhs, sc)
 	}
 
@@ -141,28 +133,6 @@ func (c *checker) walkAssign(s *ast.AssignStmt, sc scope) {
 	}
 
 	c.recordAssignment(s.Lhs[0], s.Rhs[0], sc)
-}
-
-// checkMapIndexTarget reports a write through a map index (m[k] = v, m[k]++)
-// when the map itself is a not-yet-proven pointer-typed field, e.g. o.p.m["k"].
-// It is a no-op for anything other than an index expression into a map, so
-// callers can run it unconditionally ahead of the generic expression check.
-func (c *checker) checkMapIndexTarget(target ast.Expr, sc scope) {
-	idx, isIndex := ast.Unparen(target).(*ast.IndexExpr)
-	if !isIndex {
-		return
-	}
-
-	t := c.pass.TypesInfo.TypeOf(idx.X)
-	if t == nil {
-		return
-	}
-
-	if _, isMap := t.Underlying().(*types.Map); !isMap {
-		return
-	}
-
-	c.checkBase(idx.X, useSite{pos: idx.Lbrack, kind: useMapWrite}, sc)
 }
 
 // invalidateTarget removes the proofs a write to lhs falsifies. Writing to a local
@@ -413,12 +383,11 @@ func (c *checker) walkIf(s *ast.IfStmt, sc scope) {
 	c.checkExpr(s.Cond, inner)
 
 	whenTrue, whenFalse := c.nilGuards(s.Cond, inner)
-	errTrue, errFalse := c.errorGuards(s.Cond, inner)
 
-	c.walk(s.Body.List, inner.with(whenTrue).withCheckedErrors(errTrue))
+	c.walk(s.Body.List, inner.with(whenTrue))
 
 	if s.Else != nil {
-		c.walkStmt(s.Else, inner.with(whenFalse).withCheckedErrors(errFalse))
+		c.walkStmt(s.Else, inner.with(whenFalse))
 	}
 
 	// A branch that cannot fall through proves the opposite condition for
@@ -663,12 +632,7 @@ func (c *checker) walkFuncLit(lit *ast.FuncLit, sc scope) {
 
 	c.walked[lit] = true
 
-	savedSig := c.sig
-	c.sig, _ = c.pass.TypesInfo.TypeOf(lit).(*types.Signature)
-
 	c.walk(lit.Body.List, sc.clone())
-
-	c.sig = savedSig
 }
 
 // walkGo handles a `go` statement. When the call is an immediately-invoked
@@ -699,10 +663,5 @@ func (c *checker) walkGo(s *ast.GoStmt, sc scope) {
 func (c *checker) walkGoroutine(lit *ast.FuncLit, sc scope) {
 	c.walked[lit] = true
 
-	savedSig := c.sig
-	c.sig, _ = c.pass.TypesInfo.TypeOf(lit).(*types.Signature)
-
 	c.walk(lit.Body.List, goroutineScope(sc))
-
-	c.sig = savedSig
 }

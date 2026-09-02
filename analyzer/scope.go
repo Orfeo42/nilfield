@@ -38,20 +38,18 @@ func (s nilState) message() string {
 // value, which is what lets a dereference of that same local, later in the same
 // function, be reported without a fact.
 type scope struct {
-	proven        map[string]bool
-	alias         map[string]string
-	errProof      map[string][]string
-	nilable       map[string]nilState
-	checkedErrors map[string]bool
+	proven   map[string]bool
+	alias    map[string]string
+	errProof map[string][]string
+	nilable  map[string]nilState
 }
 
 func newScope() scope {
 	return scope{
-		proven:        map[string]bool{},
-		alias:         map[string]string{},
-		errProof:      map[string][]string{},
-		nilable:       map[string]nilState{},
-		checkedErrors: map[string]bool{},
+		proven:   map[string]bool{},
+		alias:    map[string]string{},
+		errProof: map[string][]string{},
+		nilable:  map[string]nilState{},
 	}
 }
 
@@ -68,10 +66,7 @@ func (s scope) clone() scope {
 	nilable := make(map[string]nilState, len(s.nilable))
 	maps.Copy(nilable, s.nilable)
 
-	checkedErrors := make(map[string]bool, len(s.checkedErrors))
-	maps.Copy(checkedErrors, s.checkedErrors)
-
-	return scope{proven: proven, alias: alias, errProof: errProof, nilable: nilable, checkedErrors: checkedErrors}
+	return scope{proven: proven, alias: alias, errProof: errProof, nilable: nilable}
 }
 
 func (s scope) with(paths []string) scope {
@@ -83,24 +78,11 @@ func (s scope) with(paths []string) scope {
 	return out
 }
 
-// withCheckedErrors returns a clone of s with each name in names marked as an
-// error the current branch has already checked, which is what lets a return
-// reached only through that branch be checked for silently discarding it.
-func (s scope) withCheckedErrors(names []string) scope {
-	out := s.clone()
-	for _, name := range names {
-		out.checkedErrors[name] = true
-	}
-
-	return out
-}
-
 // invalidate drops every proof and alias that the write to path could have falsified:
 // the path itself, everything reachable through it, and any local aliasing either.
 func (s scope) invalidate(path string) {
 	delete(s.proven, path)
 	delete(s.nilable, path)
-	delete(s.checkedErrors, path)
 
 	prefix := path + "."
 
@@ -160,7 +142,6 @@ func goroutineScope(sc scope) scope {
 	out := newScope()
 
 	maps.Copy(out.nilable, sc.nilable)
-	maps.Copy(out.checkedErrors, sc.checkedErrors)
 
 	for p, proven := range sc.proven {
 		if proven && !isFieldPath(p) && !isStarPath(p) {

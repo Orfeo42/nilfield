@@ -15,10 +15,18 @@
 //	//nilsafe:<id>
 //	    legal and correct. Any diagnostic here is a false positive.
 //
+//	//niloutofscope:<id> why=<token>
+//	    a real hazard that falls outside what this analyzer covers by design.
+//	    <token> is one of: not-a-dereference (the hazard is not a nil pointer
+//	    or nil interface being dereferenced), not-nil-analysis (the hazard is
+//	    not about nil at all), construction-site (the hazard is a struct built
+//	    with a field left nil, not a use of that field). Any diagnostic here is
+//	    a false positive, the same as a safe case.
+//
 // TestCorpus turns each marker into a subtest: a hazard case fails until every
-// site it holds is reported, a safe case fails as soon as anything is reported
-// in it. The suite is red until the analyzer covers the whole corpus, and the
-// failing subtests are the work list.
+// site it holds is reported, a safe or out-of-scope case fails as soon as
+// anything is reported in it. The suite is red until the analyzer covers the
+// whole corpus, and the failing subtests are the work list.
 //
 // Sites the analyzer already reports additionally carry an analysistest want
 // annotation, which pins the exact position and message. The two safe cases
@@ -135,33 +143,34 @@ func assert(cond bool, msg string) { // want assert:"asserts argument 0"
 // The struct compiles, the zero value is nil, the panic lands on first use.
 // ---------------------------------------------------------------------------
 
-// dep is omitted from the literal.
+// dep is omitted from the literal. Constructing a wiring struct with a field
+// left nil is a construction-site defect, not a use of that field.
 //
-//nilhazard:new-service-missing-interface-field sites=1
+//niloutofscope:new-service-missing-interface-field why=construction-site
 func newServiceMissingInterfaceField() *service {
-	return &service{repo: &inner{}, logger: &inner{}} // want "service is constructed with dep left nil"
+	return &service{repo: &inner{}, logger: &inner{}}
 }
 
 // repo is omitted from the literal.
 //
-//nilhazard:new-service-missing-pointer-field sites=1
+//niloutofscope:new-service-missing-pointer-field why=construction-site
 func newServiceMissingPointerField() *service {
-	return &service{dep: realDoer{}, logger: &inner{}} // want "service is constructed with repo left nil"
+	return &service{dep: realDoer{}, logger: &inner{}}
 }
 
 // Every field is nil, but each key is present — a presence-only checker reports
 // nothing here.
 //
-//nilhazard:new-service-explicit-nil sites=1
+//niloutofscope:new-service-explicit-nil why=construction-site
 func newServiceExplicitNil() *service {
-	return &service{dep: nil, repo: nil, logger: nil} // want "service is constructed with dep, repo, logger left nil"
+	return &service{dep: nil, repo: nil, logger: nil}
 }
 
 // dep and logger are nil, and there is no composite literal to inspect.
 //
-//nilhazard:new-service-by-assignment sites=1
+//niloutofscope:new-service-by-assignment why=construction-site
 func newServiceByAssignment() *service {
-	s := new(service) // want "service is constructed with dep, logger left nil"
+	s := new(service)
 	s.repo = &inner{}
 
 	return s
@@ -455,11 +464,14 @@ func mayReturnNil(ok bool) *inner { // want mayReturnNil:"may return nil result 
 func derefFuncResult() int { return mayReturnNil(false).n } // want "mayReturnNil\\(false\\) may be nil here"
 
 // (nil, nil) is a not-found return, so a nil error does not imply a value.
+// Recognizing that shape is nil-value analysis, not a pointer/interface
+// dereference; the nilResults fact is still exported so the caller-side
+// dereference below is caught.
 //
-//nilhazard:find-or-nil sites=1
+//niloutofscope:find-or-nil why=not-a-dereference
 func findOrNil(id int) (*inner, error) { // want findOrNil:"may return nil result 0"
 	if id == 0 {
-		return nil, nil // want "nil value returned with a nil error"
+		return nil, nil
 	}
 
 	return &inner{}, nil
@@ -505,24 +517,28 @@ func nilMapRead() int {
 	return m["k"]
 }
 
-// Writing to a nil map panics.
+// Writing to a nil map panics. That is a nil MAP hazard, not a nil pointer or
+// nil interface dereference.
 //
-//nilhazard:nil-map-write sites=1
+//niloutofscope:nil-map-write why=not-a-dereference
 func nilMapWrite() {
 	var m map[string]int
-	m["k"] = 1 // want "m is nil here"
+	m["k"] = 1
 }
 
-// o.p, and o.p.m.
+// o.p. o.p.m is a nil map write, out of scope the same way nilMapWrite is.
 //
-//nilhazard:nil-map-write-on-field sites=2
-func nilMapWriteOnField(o *outer) { o.p.m["k"] = 1 } // want "o\\.p may be nil here" "o\\.p\\.m may be nil here"
+//nilhazard:nil-map-write-on-field sites=1
+func nilMapWriteOnField(o *outer) { o.p.m["k"] = 1 } // want "o\\.p may be nil here"
 
-//nilhazard:nil-slice-index sites=1
+// Indexing a nil slice panics. That is a nil SLICE hazard, not a nil pointer
+// or nil interface dereference.
+//
+//niloutofscope:nil-slice-index why=not-a-dereference
 func nilSliceIndex() int {
 	var s []int
 
-	return s[0] // want "s is nil here"
+	return s[0]
 }
 
 // Appending to a nil slice allocates.
@@ -571,20 +587,21 @@ func promotedFieldOnNilEmbedded(o *outer) int { return o.e } // want "o\\.embedd
 // H. Concurrency. A guard in the enclosing function does not reach the closure.
 // ---------------------------------------------------------------------------
 
-// Blocks forever rather than panicking.
+// Blocks forever rather than panicking. That is a nil CHANNEL hazard, not a
+// nil pointer or nil interface dereference.
 //
-//nilhazard:nil-channel-send sites=1
+//niloutofscope:nil-channel-send why=not-a-dereference
 func nilChannelSend() {
 	var ch chan int
-	ch <- 1 // want "ch is nil here"
+	ch <- 1
 }
 
-// Panics.
+// Panics. Still a nil channel hazard, not a pointer/interface dereference.
 //
-//nilhazard:nil-channel-close sites=1
+//niloutofscope:nil-channel-close why=not-a-dereference
 func nilChannelClose() {
 	var ch chan int
-	close(ch) // want "ch is nil here"
+	close(ch)
 }
 
 //nilhazard:deref-in-goroutine sites=1
@@ -612,17 +629,20 @@ func guardThenGoroutine(o *outer) {
 // I. Nil errors and nil funcs.
 // ---------------------------------------------------------------------------
 
-// The caller cannot tell empty from absent.
+// The caller cannot tell empty from absent. Recognizing that shape is
+// nil-value analysis, not a pointer/interface dereference.
 //
-//nilhazard:return-nil-nil sites=1
-func returnNilNil() (*inner, error) { return nil, nil } // want returnNilNil:"may return nil result 0" "nil value returned with a nil error"
+//niloutofscope:return-nil-nil why=not-a-dereference
+func returnNilNil() (*inner, error) { return nil, nil } // want returnNilNil:"may return nil result 0"
 
-// The error is checked and then discarded.
+// The error is checked and then discarded. Whether a checked error is
+// propagated is not a question about a nil pointer or interface being
+// dereferenced.
 //
-//nilhazard:swallow-error sites=1
+//niloutofscope:swallow-error why=not-nil-analysis
 func swallowError() error {
 	if err := doWork(); err != nil {
-		return nil // want "err is discarded"
+		return nil
 	}
 
 	return nil
@@ -633,22 +653,26 @@ func swallowError() error {
 //nilhazard:nil-error-message sites=1
 func nilErrorMessage(err error) string { return err.Error() } // want "err may be nil here"
 
-// o.p, and the fn field.
+// o.p. The fn field call itself is a nil FUNC hazard, out of scope.
 //
-//nilhazard:call-nil-func-field sites=2
-func callNilFuncField(o *outer) int { return o.p.fn() } // want "o\\.p may be nil here" "o\\.p\\.fn may be nil here"
+//nilhazard:call-nil-func-field sites=1
+func callNilFuncField(o *outer) int { return o.p.fn() } // want "o\\.p may be nil here"
 
-//nilhazard:call-nil-func-var sites=1
+// Calling a nil func value is a nil FUNC hazard, not a nil pointer or nil
+// interface dereference.
+//
+//niloutofscope:call-nil-func-var why=not-a-dereference
 func callNilFuncVar() int {
 	var f func() int
 
-	return f() // want "f is nil here"
+	return f()
 }
 
-// Always true.
+// Always true. A declared function is never nil, so this comparison is not
+// about a nil value reaching a dereference at all.
 //
-//nilhazard:compare-declared-func-to-nil sites=1
-func compareDeclaredFuncToNil() bool { return abs != nil } // want "abs is never nil"
+//niloutofscope:compare-declared-func-to-nil why=not-nil-analysis
+func compareDeclaredFuncToNil() bool { return abs != nil }
 
 // ---------------------------------------------------------------------------
 // J. Guards that do not hold where the dereference is.

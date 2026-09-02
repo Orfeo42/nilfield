@@ -46,7 +46,6 @@ func (c *checker) exportNilSafeReceiverFact(fd *ast.FuncDecl) bool {
 		resolve:      c.resolve,
 		silent:       true,
 		receiver:     recv,
-		sig:          c.declSignature(fd),
 	}
 
 	probe.walk(fd.Body.List, newScope())

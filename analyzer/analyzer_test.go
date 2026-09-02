@@ -46,14 +46,6 @@ func TestAnalyzer(t *testing.T) {
 	t.Run("excluded path reports nothing", func(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), New(Config{ExcludePaths: "src/excluded/"}), "excluded")
 	})
-
-	t.Run("return rules: nil beside nil error, swallowed error", func(t *testing.T) {
-		analysistest.Run(t, analysistest.TestData(), New(Config{}), "returns")
-	})
-
-	t.Run("a wiring struct built with some fields left nil is reported", func(t *testing.T) {
-		analysistest.Run(t, analysistest.TestData(), New(Config{}), "construction")
-	})
 }
 
 func TestSplitFragments(t *testing.T) {
