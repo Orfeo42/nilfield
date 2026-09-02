@@ -38,10 +38,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.13.2
-          install-mode: binary
+      # golangci-lint-action always runs the linter and has no install-only mode,
+      # so a lint failure there would block publishing the asset. Install the
+      # pinned binary directly instead; `golangci-lint custom` then compiles the
+      # version named in .custom-gcl.yml with the plugin from this checkout.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 
       - name: Build custom-gcl
         run: golangci-lint custom
