@@ -18,7 +18,7 @@ type wiredSingle struct {
 	dep depIface
 }
 
-func newWiredSingle() *wiredSingle {
+func newWiredSingle() *wiredSingle { // want newWiredSingle:"never returns nil result 0"
 	return &wiredSingle{dep: &depImpl{}}
 }
 
@@ -32,7 +32,7 @@ type omittedField struct {
 	dep depIface
 }
 
-func newOmittedField() *omittedField {
+func newOmittedField() *omittedField { // want newOmittedField:"never returns nil result 0"
 	return &omittedField{}
 }
 
@@ -46,11 +46,11 @@ type oneOfTwoOmits struct {
 	dep depIface
 }
 
-func newOneOfTwoOmitsA() *oneOfTwoOmits {
+func newOneOfTwoOmitsA() *oneOfTwoOmits { // want newOneOfTwoOmitsA:"never returns nil result 0"
 	return &oneOfTwoOmits{dep: &depImpl{}}
 }
 
-func newOneOfTwoOmitsB() *oneOfTwoOmits {
+func newOneOfTwoOmitsB() *oneOfTwoOmits { // want newOneOfTwoOmitsB:"never returns nil result 0"
 	return &oneOfTwoOmits{}
 }
 
@@ -64,7 +64,7 @@ type explicitNil struct {
 	dep depIface
 }
 
-func newExplicitNil() *explicitNil {
+func newExplicitNil() *explicitNil { // want newExplicitNil:"never returns nil result 0"
 	return &explicitNil{dep: nil}
 }
 
@@ -79,7 +79,7 @@ type zeroValueVar struct {
 	dep depIface
 }
 
-func newZeroValueVar() *zeroValueVar {
+func newZeroValueVar() *zeroValueVar { // want newZeroValueVar:"never returns nil result 0"
 	return &zeroValueVar{dep: &depImpl{}}
 }
 
@@ -99,7 +99,7 @@ type sliceElement struct {
 	dep depIface
 }
 
-func newSliceElement() *sliceElement {
+func newSliceElement() *sliceElement { // want newSliceElement:"never returns nil result 0"
 	return &sliceElement{dep: &depImpl{}}
 }
 
@@ -117,7 +117,7 @@ type fieldCleared struct {
 	dep depIface
 }
 
-func newFieldCleared() *fieldCleared {
+func newFieldCleared() *fieldCleared { // want newFieldCleared:"never returns nil result 0"
 	return &fieldCleared{dep: &depImpl{}}
 }
 
@@ -135,7 +135,7 @@ type ExportedWired struct {
 	dep depIface
 }
 
-func newExportedWired() *ExportedWired {
+func newExportedWired() *ExportedWired { // want newExportedWired:"never returns nil result 0"
 	return &ExportedWired{dep: &depImpl{}}
 }
 
@@ -150,7 +150,7 @@ type embeddedTarget struct {
 	dep depIface
 }
 
-func newEmbeddedTarget() *embeddedTarget {
+func newEmbeddedTarget() *embeddedTarget { // want newEmbeddedTarget:"never returns nil result 0"
 	return &embeddedTarget{dep: &depImpl{}}
 }
 
@@ -171,7 +171,7 @@ type nonPointerField struct {
 	count int
 }
 
-func newNonPointerField() *nonPointerField {
+func newNonPointerField() *nonPointerField { // want newNonPointerField:"never returns nil result 0"
 	return &nonPointerField{}
 }
 
@@ -187,7 +187,7 @@ type checkedErrorCtor struct {
 	dep depIface
 }
 
-func makeDep() (depIface, error) {
+func makeDep() (depIface, error) { // want makeDep:"never returns nil result 0"
 	return &depImpl{}, nil
 }
 
@@ -210,7 +210,7 @@ type testOnlyPartial struct {
 	dep depIface
 }
 
-func newTestOnlyPartial() *testOnlyPartial {
+func newTestOnlyPartial() *testOnlyPartial { // want newTestOnlyPartial:"never returns nil result 0"
 	return &testOnlyPartial{dep: &depImpl{}}
 }
 

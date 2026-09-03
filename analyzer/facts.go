@@ -1,6 +1,9 @@
 package analyzer
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // assertHelper marks a function that panics unless its Arg-th argument is true.
 type assertHelper struct{ Arg int }
@@ -15,3 +18,20 @@ type neverReturns struct{}
 func (*neverReturns) AFact() {}
 
 func (*neverReturns) String() string { return "never returns" }
+
+// nonNilResults marks a function whose named results are proven non-nil on
+// every return path, computed and exported by exportNonNilResultsFact.
+// Results lists the zero-based indexes that qualify.
+type nonNilResults struct{ Results []int }
+
+func (*nonNilResults) AFact() {}
+
+func (f *nonNilResults) String() string {
+	parts := make([]string, 0, len(f.Results))
+
+	for _, r := range f.Results {
+		parts = append(parts, "never returns nil result "+strconv.Itoa(r))
+	}
+
+	return strings.Join(parts, ", ")
+}

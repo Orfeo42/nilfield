@@ -525,17 +525,24 @@ func fieldWired(sites []*literalSite, st *types.Struct, f *types.Var, facts *wir
 }
 
 // isProvenValue reports whether expr, appearing at node at inside body, is
-// non-nil: a syntactic address-of or new(...), or a bare identifier whose
-// own assignment earlier in the same function body is either of those, or a
-// call whose paired error result was checked with a branch that exits. body
-// is the innermost enclosing function or closure body containing at, or nil
-// when at is not inside one - a package-level construction, for instance.
+// non-nil: a syntactic address-of or new(...), a bare identifier whose own
+// assignment earlier in the same function body is either of those, a call
+// whose paired error result was checked with a branch that exits, or a call
+// to a callee already proven non-nil at result 0 via its own nonNilResults
+// fact - the singleton-getter shape (`opLog: operation_log.GetDefault()`).
+// body is the innermost enclosing function or closure body containing at, or
+// nil when at is not inside one - a package-level construction, for
+// instance.
 func (c *checker) isProvenValue(expr ast.Expr, at ast.Node, body *ast.BlockStmt) bool {
 	if c.isNilIdent(expr) {
 		return false
 	}
 
 	if c.isDefinitelyNonNil(expr) {
+		return true
+	}
+
+	if call, isCall := expr.(*ast.CallExpr); isCall && c.calleeProvesNonNilResult(call, 0) {
 		return true
 	}
 

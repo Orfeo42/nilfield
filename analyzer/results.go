@@ -478,6 +478,175 @@ func (c *checker) callArgDefinitelyNonNil(call *ast.CallExpr, paramIdx int, sc s
 	return ok && sc.proven[path]
 }
 
+// computeNonNilResultsFact builds the nonNilResults fact for fd/fn from its
+// body alone, exercised directly from a unit test the same way
+// computeNilResultsFact is. It reports false whenever fd disqualifies
+// itself: a named result (a deferred closure can rewrite it after every
+// return has already run), a return whose shape does not match the
+// signature (a bare return, or a `return f()` tuple expansion), a body with
+// no return statement at all, or a return whose value at a candidate index
+// is anything other than an address, a new(...) call, a bare composite
+// literal, or a call to a callee already proven non-nil at that result. A
+// self-recursive function never qualifies, since its own fact is never
+// found already exported on an earlier pass of the fixpoint loop - the
+// correct conservative answer, not a bug to special-case.
+func (c *checker) computeNonNilResultsFact(fd *ast.FuncDecl, fn *types.Func) (*nonNilResults, bool) {
+	results := fn.Signature().Results()
+
+	if hasNamedResult(results) {
+		return nil, false
+	}
+
+	candidates := nonNilCandidateIndexes(results)
+	if len(candidates) == 0 {
+		return nil, false
+	}
+
+	returns := c.collectReturns(fd.Body)
+	if len(returns) == 0 {
+		return nil, false
+	}
+
+	for _, ret := range returns {
+		if len(ret.Results) != results.Len() {
+			return nil, false
+		}
+
+		for _, idx := range candidates {
+			if !c.isDefinitelyNonNilResult(ret.Results[idx]) {
+				return nil, false
+			}
+		}
+	}
+
+	return &nonNilResults{Results: candidates}, true
+}
+
+// hasNamedResult reports whether any of results carries a name.
+func hasNamedResult(results *types.Tuple) bool {
+	for i := 0; i < results.Len(); i++ {
+		if results.At(i).Name() != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// nonNilCandidateIndexes lists the result indexes eligible for the
+// nonNilResults fact: a nillable kind per isNilResultKind, excluding the
+// error type the same way collectNilResultIndexes does.
+func nonNilCandidateIndexes(results *types.Tuple) []int {
+	var out []int
+
+	for i := 0; i < results.Len(); i++ {
+		rt := results.At(i).Type()
+		if isErrorType(rt) {
+			continue
+		}
+
+		if isNilResultKind(rt) {
+			out = append(out, i)
+		}
+	}
+
+	return out
+}
+
+// collectReturns lists every return statement in body, nested func literals
+// skipped as elsewhere.
+func (c *checker) collectReturns(body *ast.BlockStmt) []*ast.ReturnStmt {
+	var out []*ast.ReturnStmt
+
+	inspectSkippingFuncLits(body, func(n ast.Node) {
+		if ret, isReturn := n.(*ast.ReturnStmt); isReturn {
+			out = append(out, ret)
+		}
+	})
+
+	return out
+}
+
+// isDefinitelyNonNilResult reports whether expr, appearing as a return value
+// at a candidate result index, is definitely non-nil: an address-of or
+// new(...) expression, a bare composite literal - a map or slice literal
+// boxed into a nillable interface or map result is never nil even when
+// empty - or a call to a callee already proven non-nil at result 0, the
+// single-valued context every explicit return expression is evaluated in.
+func (c *checker) isDefinitelyNonNilResult(expr ast.Expr) bool {
+	expr = ast.Unparen(expr)
+
+	if c.isDefinitelyNonNil(expr) {
+		return true
+	}
+
+	if _, isLit := expr.(*ast.CompositeLit); isLit {
+		return true
+	}
+
+	call, isCall := expr.(*ast.CallExpr)
+
+	return isCall && c.calleeProvesNonNilResult(call, 0)
+}
+
+// calleeProvesNonNilResult resolves call's callee to a declared function or
+// method and reports whether its nonNilResults fact names idx.
+func (c *checker) calleeProvesNonNilResult(call *ast.CallExpr, idx int) bool {
+	var ident *ast.Ident
+
+	switch fun := ast.Unparen(call.Fun).(type) {
+	case *ast.Ident:
+		ident = fun
+	case *ast.SelectorExpr:
+		ident = fun.Sel
+	default:
+		return false
+	}
+
+	fn, isFunc := c.resolve(ident).(*types.Func)
+	if !isFunc {
+		return false
+	}
+
+	var fact nonNilResults
+	if !c.pass.ImportObjectFact(fn, &fact) {
+		return false
+	}
+
+	return slices.Contains(fact.Results, idx)
+}
+
+// exportNonNilResultsFact records, for fd, which results are proven non-nil
+// on every return path. Because the fact can hold transitively through a
+// wrapper returning another proven getter's result, this runs inside run's
+// fixpoint loop alongside exportNeverReturnsFact, exportAssertHelperFact and
+// exportNilSafeReceiverFact rather than the single pre-pass. It returns
+// whether it exported a fact that was not already recorded.
+func (c *checker) exportNonNilResultsFact(fd *ast.FuncDecl) bool {
+	if fd.Body == nil {
+		return false
+	}
+
+	fn, isFunc := c.pass.TypesInfo.ObjectOf(fd.Name).(*types.Func)
+	if !isFunc {
+		return false
+	}
+
+	var scratch nonNilResults
+	if c.pass.ImportObjectFact(fn, &scratch) {
+		return false
+	}
+
+	fact, ok := c.computeNonNilResultsFact(fd, fn)
+	if !ok {
+		return false
+	}
+
+	c.pass.ExportObjectFact(fn, fact)
+
+	return true
+}
+
 // markNilResultsFromCall marks maybe-nil, in sc, the names among lhs that
 // receive a result rhs's callee may return as a literal nil beside a nil
 // error. Used for both `v, err := f()` and `var v, err = f()`.

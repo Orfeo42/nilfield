@@ -150,14 +150,14 @@ func assert(cond bool, msg string) { // want assert:"asserts argument 0"
 // left nil is a construction-site defect, not a use of that field.
 //
 //niloutofscope:new-service-missing-interface-field why=construction-site
-func newServiceMissingInterfaceField() *service {
+func newServiceMissingInterfaceField() *service { // want newServiceMissingInterfaceField:"never returns nil result 0"
 	return &service{repo: &inner{}, logger: &inner{}}
 }
 
 // repo is omitted from the literal.
 //
 //niloutofscope:new-service-missing-pointer-field why=construction-site
-func newServiceMissingPointerField() *service {
+func newServiceMissingPointerField() *service { // want newServiceMissingPointerField:"never returns nil result 0"
 	return &service{dep: realDoer{}, logger: &inner{}}
 }
 
@@ -165,7 +165,7 @@ func newServiceMissingPointerField() *service {
 // nothing here.
 //
 //niloutofscope:new-service-explicit-nil why=construction-site
-func newServiceExplicitNil() *service {
+func newServiceExplicitNil() *service { // want newServiceExplicitNil:"never returns nil result 0"
 	return &service{dep: nil, repo: nil, logger: nil}
 }
 

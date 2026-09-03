@@ -68,6 +68,7 @@ func New(cfg Config) *analysis.Analyzer {
 			(*neverReturns)(nil),
 			(*nilSafeReceiver)(nil),
 			(*nilResults)(nil),
+			(*nonNilResults)(nil),
 		},
 	}
 
@@ -120,6 +121,10 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 			}
 
 			if c.exportNilSafeReceiverFact(fd) {
+				exportedNew = true
+			}
+
+			if c.exportNonNilResultsFact(fd) {
 				exportedNew = true
 			}
 		}

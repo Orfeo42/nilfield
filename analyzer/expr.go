@@ -108,6 +108,10 @@ func (c *checker) checkBase(base ast.Expr, site useSite, sc scope) {
 		return
 	}
 
+	if c.isOutOfModuleFieldAccess(base) {
+		return
+	}
+
 	path, ok := canonicalPath(base, sc.alias)
 	if !ok {
 		c.checkNilOriginBase(base, site, sc)
@@ -281,7 +285,7 @@ func (c *checker) checkPromotedField(e *ast.SelectorExpr, sc scope) {
 		f := st.Field(idx)
 		basePath += "." + f.Name()
 
-		if _, isPtr := types.Unalias(f.Type()).Underlying().(*types.Pointer); isPtr {
+		if _, isPtr := types.Unalias(f.Type()).Underlying().(*types.Pointer); isPtr && !c.isOutOfModuleField(f) {
 			c.checkPath(basePath, f.Type(), useSite{pos: e.Sel.Pos(), kind: useSelector}, sc)
 		}
 
