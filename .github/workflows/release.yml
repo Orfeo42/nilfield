@@ -31,6 +31,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
     steps:
       - uses: actions/checkout@v5
 
@@ -53,16 +71,45 @@ jobs:
       # CGO_ENABLED=0 so the asset is statically linked. golangci-lint custom
       # otherwise builds with cgo, producing a binary tied to the builder's
       # glibc, which fails on a musl image and on any glibc older than the
-      # runner's. Static means it runs on whatever linux/amd64 a consumer has.
+      # runner's. Static means it runs on whatever the consumer has, and it is
+      # what makes GOOS/GOARCH cross-compilation work at all: `golangci-lint
+      # custom` shells out to `go build`, which honours both from the
+      # environment. The output file is named by .custom-gcl.yml, so it carries
+      # no .exe suffix even for a windows target.
       - name: Build custom-gcl
         env:
           CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: golangci-lint custom
 
       - name: Rename asset
-        run: mv .cache/custom-gcl custom-gcl-linux-amd64
+        run: mv .cache/custom-gcl "custom-gcl-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
 
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" custom-gcl-linux-amd64 --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" "custom-gcl-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" --clobber
+
+  # goreleaser's checksums.txt covers only the artifacts it built, so the
+  # custom-gcl assets get their own checksum file. The name uses an underscore
+  # so the `custom-gcl-*` download pattern below never matches it, which would
+  # otherwise make a re-run checksum its own previous output.
+  custom-gcl-checksums:
+    needs: custom-gcl
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download custom-gcl assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --pattern "custom-gcl-*"
+
+      - name: Compute checksums
+        run: sha256sum custom-gcl-* > custom-gcl_checksums.txt
+
+      - name: Upload checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" custom-gcl_checksums.txt --clobber

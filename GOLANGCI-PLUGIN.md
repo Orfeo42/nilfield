@@ -50,7 +50,8 @@ name: custom-gcl
 destination: .
 plugins:
   - module: 'github.com/Orfeo42/nilfield'
-    version: v0.1.0
+    version: v0.0.4
+    import: 'github.com/Orfeo42/nilfield/plugin'
 ```
 
 `version` (the golangci-lint version to build against) and each plugin's `module` are required; `name` defaults to `custom-gcl`, `destination` to `.`, and a plugin entry takes `version` for a module from the proxy or `path` for a local checkout, plus `import` when the registering package is not the module root.
@@ -102,7 +103,7 @@ The plugin does not run on a stock golangci-lint binary. Every consumer — ever
 - Editor integrations point at `golangci-lint` by name. Each developer reconfigures, or the custom binary is installed under that name, which then shadows the real one.
 - A golangci-lint upgrade is now a two-sided upgrade: bump `version:` in `.custom-gcl.yml` and rebuild, and reconcile `x/tools` if it moved.
 
-For linux/amd64 the per-consumer `custom-gcl` build is no longer required: this repository's release workflow runs `golangci-lint custom` against the `.custom-gcl.yml` checked in here and publishes the resulting binary as the `custom-gcl-linux-amd64` release asset, so a consumer on that platform downloads it instead of compiling it. The golangci-lint version pin also moved with it, from each consumer's own config into this repository's `.custom-gcl.yml`, so bumping it is a change here, not in every consumer. Other platforms, and any consumer who wants to build from source, still go through `golangci-lint custom` themselves.
+The per-consumer `custom-gcl` build is no longer required on any platform: this repository's release workflow runs `golangci-lint custom` against the `.custom-gcl.yml` checked in here, once per target, and publishes the resulting binaries as the `custom-gcl-linux-amd64`, `custom-gcl-linux-arm64`, `custom-gcl-darwin-amd64`, `custom-gcl-darwin-arm64`, `custom-gcl-windows-amd64.exe` and `custom-gcl-windows-arm64.exe` release assets, with their SHA-256 sums in `custom-gcl_checksums.txt` (goreleaser's own `checksums.txt` covers only the artifacts it built, so it does not list them). Cross-compilation works because `golangci-lint custom` shells out to `go build`, which honours `GOOS`/`GOARCH` from the environment, and because the assets are built with `CGO_ENABLED=0`. The output filename comes from `.custom-gcl.yml`, so the windows binaries are renamed to `.exe` after the build. The golangci-lint version pin also moved with the assets, from each consumer's own config into this repository's `.custom-gcl.yml`, so bumping it is a change here, not in every consumer. Building from source with `golangci-lint custom` stays supported for anyone who wants it, and remains the path for a platform not in that list.
 
 Against that, what the plugin buys is: one binary instead of two in CI, findings in golangci-lint's output format, and `nolint` directives working on `nilfield` findings the same way they work everywhere else.
 
