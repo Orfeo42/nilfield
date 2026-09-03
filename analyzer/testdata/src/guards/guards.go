@@ -259,7 +259,10 @@ func embeddedGuard(o *outer) int {
 	return o.e
 }
 
-func starUnguarded(p *int) int { return *p } // want "p may be nil here"
+// starUnguarded dereferences a parameter with no visible nil origin, which is
+// the one bare shape this analyzer leaves alone: the same reason a selector
+// through such a parameter stays silent.
+func starUnguarded(p *int) int { return *p }
 
 func errorUnguarded(err error) string { return err.Error() } // want "err may be nil here"
 
@@ -367,7 +370,7 @@ func commaOkAssertChecked(v any) int {
 }
 
 func take(pp **inner) bool {
-	*pp = &inner{} // want "pp may be nil here"
+	*pp = &inner{}
 
 	return true
 }

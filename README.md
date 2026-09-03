@@ -45,12 +45,12 @@ The sites:
 
 - selecting a field or calling a method through a nil pointer or interface
 - a promoted field reached through a nil embedded pointer
-- explicit `*p` and `(*pp).next`
+- explicit `*p` and `(*pp).next`, where the dereferenced path is a struct field or an already-starred path
 - a bare local whose nil origin is visible in the same function: declared with no initializer, assigned nil, copied from such a local, a nil pointer stored into an interface, an element of a map or slice of pointer type, a type assertion result, or a call result a fact marks nil-able
 - a method call on a nil receiver whose body dereferences it
 - `err.Error()` on an unchecked error value
 
-Bare parameters with no visible nil origin are deliberately not reported.
+Bare parameters and locals with no visible nil origin are deliberately not reported, dereferenced with `*p` as much as selected through: `*d = Date{}` in a pointer-receiver method and `newPay := *pay` are the shape of ordinary code, not of a missing guard.
 
 ## What counts as a proof
 
@@ -61,8 +61,10 @@ A path is proven non-nil by any of:
 - assignment of an address or `new(...)`
 - fields set in a composite literal
 - a call to an assert helper
+- a call to a nil-predicate helper, on the branch where it is false: `if !g.IsNil(err) { ... }`
 - a checked call to a validator method
 - `switch { case x == nil: return }` and `switch x { case nil: return }`, including the code after an exiting clause and later clauses
+- every construction in the package wiring the field: a pointer or interface field that only this package can write - any field of an unexported type, an unexported field of an exported one - and that no construction in the package's non-test files leaves visibly nil, is not reported at its uses. Visibly nil means the literal `nil`, a map or slice element, a type assertion result, a call a `may return nil result` fact marks nil-able, or a local carrying one of those. A dependency handed to the constructor as a parameter, copied off another struct, or returned by an interface method is not visibly nil, the same way a bare parameter with no visible nil origin is not reported at its own uses
 
 A write to a path inside a loop body, a non-exiting `if` branch, or a switch or select clause drops the proof after that statement, since the loop or clause may not run at all. A closure started with `go` does not inherit field-path proofs, since the guard held when the goroutine was created rather than when it runs.
 
@@ -77,6 +79,7 @@ Everything the analyzer knows about another function is derived from that functi
 | `never returns` | the function's body always ends in a panic, or in a call to another never-returning function |
 | `nil-safe receiver` | a pointer-receiver method that never dereferences its own receiver unguarded |
 | `may return nil result N` | used to report the caller dereferencing that result; the producing function itself is not reported |
+| `reports nil argument N` | a bool-returning function that answers true whenever its Nth argument is nil, recognised from a leading `if p == nil { return true }` guard or from delegation to another such function; the caller's false branch has that argument proven |
 
 ## Scope
 
@@ -88,12 +91,12 @@ Everything the analyzer knows about another function is derived from that functi
 
 ## Corpus and coverage
 
-`analyzer/testdata/src/nilcases` is a corpus of the ways a nil value reaches a fault in Go, deliberately wider than this analyzer's scope. It holds 43 in-scope hazard cases across 47 sites, all covered; 13 cases marked out of scope; and 16 safe cases that must stay silent. `TestCorpus` turns every marker into a subtest.
+`analyzer/testdata/src/nilcases` is a corpus of the ways a nil value reaches a fault in Go, deliberately wider than this analyzer's scope. It holds 45 in-scope hazard cases across 47 sites, all covered; 13 cases marked out of scope; and 16 safe cases that must stay silent. `TestCorpus` turns every marker into a subtest.
 
 The suite is green: `go test ./...` passes, and the coverage subtest logs:
 
 ```
-nilfield fully covers 43 of 43 hazard cases (47 of 47 hazard sites)
+nilfield fully covers 45 of 45 hazard cases (47 of 47 hazard sites)
 out of scope: 7 not-a-dereference, 4 construction-site, 2 not-nil-analysis
 ```
 

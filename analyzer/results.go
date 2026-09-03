@@ -411,18 +411,7 @@ func intersectInts(a, b map[int]bool) map[int]bool {
 // conversion, a builtin, or a call through a func value rather than a declared
 // function or method.
 func (c *checker) calleeNilResultsFact(call *ast.CallExpr) (nilResults, bool) {
-	var ident *ast.Ident
-
-	switch fun := ast.Unparen(call.Fun).(type) {
-	case *ast.Ident:
-		ident = fun
-	case *ast.SelectorExpr:
-		ident = fun.Sel
-	default:
-		return nilResults{}, false
-	}
-
-	fn, isFunc := c.resolve(ident).(*types.Func)
+	fn, isFunc := c.calleeFunc(call)
 	if !isFunc {
 		return nilResults{}, false
 	}

@@ -147,11 +147,12 @@ func (c *checker) checkNilOriginBase(base ast.Expr, site useSite, sc scope) {
 
 // checkPath decides whether the given use of an already-proven-or-not path is
 // hazardous. A field or star path is reported for the uses that dereference or
-// call through it; a bare local or parameter is reported only for the two uses
-// that are unambiguously the caller's own mistake (an explicit `*p` and a method
-// call on an unchecked `error`) — everything else bare stays silent, because this
-// analyzer is about fields reached through a struct, which is where the guard is
-// easy to forget, not about auditing every parameter in the program.
+// call through it; a bare local or parameter with no visible nil origin is
+// reported only for the one use that is unambiguously the caller's own mistake,
+// a method call on an unchecked `error` — everything else bare stays silent,
+// because this analyzer is about fields reached through a struct, which is where
+// the guard is easy to forget, not about auditing every parameter in the
+// program.
 //
 // A use of the enclosing method's own receiver is the one path this probes
 // during exportNilSafeReceiverFact's silent walk: it marks the receiver
@@ -235,13 +236,20 @@ func (c *checker) checkFieldOrStarUse(path string, t types.Type, pos token.Pos, 
 	}
 }
 
+// checkBarePathUse reports the one use of a bare local or parameter with no
+// visible nil origin that is unambiguously the caller's own mistake: calling
+// Error() on an unchecked error value. An explicit `*p` is deliberately not
+// reported here. A bare path whose nil origin IS visible was already answered
+// by checkKnownNil, so what reaches this point is a parameter or a local the
+// function has no evidence about, and dereferencing one of those is the shape
+// of `*d = Date{}` in a pointer-receiver method or `newPay := *pay`, not of a
+// missing guard - the same reason a selector through such a path stays silent.
 func (c *checker) checkBarePathUse(path string, t types.Type, pos token.Pos, use useKind) {
-	switch {
-	case use == useStar:
-		c.report(pos, "%s may be nil here", path)
-	case use == useSelector && isErrorType(t):
-		c.report(pos, "%s may be nil here", path)
+	if use != useSelector || !isErrorType(t) {
+		return
 	}
+
+	c.report(pos, "%s may be nil here", path)
 }
 
 // report emits a diagnostic unless the checker is silent or the file is excluded.

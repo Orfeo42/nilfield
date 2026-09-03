@@ -772,15 +772,16 @@ func guardThenLoopReassign(o *outer, list []*inner) int {
 // K. Indirection.
 // ---------------------------------------------------------------------------
 
-// pp, and *pp.
+// *pp. The bare pp is a parameter with no visible nil origin, which this
+// analyzer leaves alone the same way it leaves a selector through one alone.
 //
-//nilhazard:double-pointer sites=2
-func doublePointer(pp **inner) int { return (*pp).n } // want "pp may be nil here" "\\(\\*pp\\) may be nil here"
+//nilhazard:double-pointer sites=1
+func doublePointer(pp **inner) int { return (*pp).n } // want "\\(\\*pp\\) may be nil here"
 
-// pp, *pp, and the next field.
+// *pp and the next field, the bare pp aside as above.
 //
-//nilhazard:double-pointer-chain sites=3
-func doublePointerChain(pp **inner) int { return (*pp).next.n } // want "pp may be nil here" "\\(\\*pp\\) may be nil here" "\\(\\*pp\\)\\.next may be nil here"
+//nilhazard:double-pointer-chain sites=2
+func doublePointerChain(pp **inner) int { return (*pp).next.n } // want "\\(\\*pp\\) may be nil here" "\\(\\*pp\\)\\.next may be nil here"
 
 //nilhazard:nil-inside-value-struct sites=1
 func nilInsideValueStruct() int {

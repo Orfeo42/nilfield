@@ -4,11 +4,12 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"slices"
 )
 
-// computeWiredFields identifies, for every unexported named struct type
-// declared in the package under analysis, which pointer- or interface-typed
-// fields are always non-nil: every construction of the type anywhere in the
+// computeWiredFields identifies, for every named struct type declared in the
+// package under analysis, which of the pointer- or interface-typed fields
+// only this package can write (eligibleField) are always non-nil: every construction of the type anywhere in the
 // package's non-test files proves the field non-nil, and no invalidating
 // write, embedding, or reflect use appears anywhere in those files either. A
 // dereference through such a field is not reported, the same way a proven
@@ -28,7 +29,7 @@ import (
 func (c *checker) computeWiredFields() map[*types.Var]bool {
 	wired := map[*types.Var]bool{}
 
-	structTypes := c.unexportedStructTypes()
+	structTypes := c.candidateStructTypes()
 	if len(structTypes) == 0 {
 		return wired
 	}
@@ -55,7 +56,7 @@ func (c *checker) computeWiredFields() map[*types.Var]bool {
 
 		for i := range st.NumFields() {
 			f := st.Field(i)
-			if isPointerOrInterface(f.Type()) && fieldWired(sites, st, f, facts) {
+			if isPointerOrInterface(f.Type()) && eligibleField(named, f) && fieldWired(sites, st, f, facts) {
 				wired[f] = true
 			}
 		}
@@ -99,18 +100,20 @@ func (c *checker) isWiredFieldAccess(base ast.Expr) bool {
 	return isVar && c.wired[field]
 }
 
-// unexportedStructTypes lists the unexported named struct types declared at
-// package scope: the only types a composite literal, a `new(...)`, or a
-// method receiver of this type can appear for exclusively within this
-// package.
-func (c *checker) unexportedStructTypes() []*types.Named {
+// candidateStructTypes lists the named struct types declared at package
+// scope. Exported ones are included: external code can name and
+// zero-construct an exported type, but it cannot write that type's
+// unexported fields, so for those fields this package's own constructions
+// are still the complete set. eligibleField is what keeps an exported field
+// of an exported type out.
+func (c *checker) candidateStructTypes() []*types.Named {
 	var out []*types.Named
 
 	scope := c.pass.Pkg.Scope()
 
 	for _, name := range scope.Names() {
 		tn, isTypeName := scope.Lookup(name).(*types.TypeName)
-		if !isTypeName || tn.Exported() {
+		if !isTypeName {
 			continue
 		}
 
@@ -161,6 +164,15 @@ func (c *checker) typesEmbeddedInExported() map[*types.Named]bool {
 	}
 
 	return out
+}
+
+// eligibleField reports whether f of named is a field only this package can
+// ever write: any field of an unexported type, whose name external code
+// cannot spell to construct it at all, or an unexported field of an exported
+// type. An exported field of an exported type is left out - an external
+// composite literal can set it, or leave it nil, and nothing here sees that.
+func eligibleField(named *types.Named, f *types.Var) bool {
+	return !named.Obj().Exported() || !f.Exported()
 }
 
 func isPointerOrInterface(t types.Type) bool {
@@ -429,7 +441,7 @@ func (c *checker) newLiteralSite(lit *ast.CompositeLit, body *ast.BlockStmt) *li
 		site.positionalOK = make([]bool, len(lit.Elts))
 
 		for i, elt := range lit.Elts {
-			site.positionalOK[i] = c.isProvenValue(elt, lit, body)
+			site.positionalOK[i] = !c.isNilableValue(elt, lit, body)
 		}
 
 		return site
@@ -448,7 +460,7 @@ func (c *checker) newLiteralSite(lit *ast.CompositeLit, body *ast.BlockStmt) *li
 			continue
 		}
 
-		site.keyedProven[key.Name] = c.isProvenValue(kv.Value, lit, body)
+		site.keyedProven[key.Name] = !c.isNilableValue(kv.Value, lit, body)
 	}
 
 	return site
@@ -506,7 +518,7 @@ func (c *checker) recordFieldWrites(assign *ast.AssignStmt, currentBody *ast.Blo
 			continue
 		}
 
-		if !c.isProvenValue(assign.Rhs[i], assign, currentBody) {
+		if c.isNilableValue(assign.Rhs[i], assign, currentBody) {
 			facts.fieldInvalidated[field] = true
 		}
 	}
@@ -524,128 +536,115 @@ func fieldWired(sites []*literalSite, st *types.Struct, f *types.Var, facts *wir
 	return !facts.fieldInvalidated[f]
 }
 
-// isProvenValue reports whether expr, appearing at node at inside body, is
-// non-nil: a syntactic address-of or new(...), a bare identifier whose own
-// assignment earlier in the same function body is either of those, a call
-// whose paired error result was checked with a branch that exits, or a call
-// to a callee already proven non-nil at result 0 via its own nonNilResults
-// fact - the singleton-getter shape (`opLog: operation_log.GetDefault()`).
+// isNilableValue reports whether expr, appearing at node at inside body, has a
+// visible nil origin: the identifier nil, a map or slice element, a type
+// assertion result, a call whose callee's nilResults fact marks result 0
+// nil-able, or a local whose own declaration or assignment earlier in the same
+// function body is one of those. Everything else counts as wiring the field: a
+// parameter, a field copied off another struct, an interface method's result, a
+// call carrying no nil-able fact.
+//
+// The burden runs this way round because the checker itself leaves a bare
+// parameter with no visible nil origin unreported. Demanding a positive proof
+// here instead would answer the same question the opposite way at the two ends
+// of one constructor, and report every use of a dependency the constructor took
+// as a parameter and stored, which is how most of this code is wired.
+//
 // body is the innermost enclosing function or closure body containing at, or
-// nil when at is not inside one - a package-level construction, for
-// instance.
-func (c *checker) isProvenValue(expr ast.Expr, at ast.Node, body *ast.BlockStmt) bool {
+// nil when at is not inside one - a package-level construction, for instance.
+func (c *checker) isNilableValue(expr ast.Expr, at ast.Node, body *ast.BlockStmt) bool {
 	if c.isNilIdent(expr) {
-		return false
-	}
-
-	if c.isDefinitelyNonNil(expr) {
 		return true
 	}
 
-	if call, isCall := expr.(*ast.CallExpr); isCall && c.calleeProvesNonNilResult(call, 0) {
+	if c.isDefinitelyNonNil(expr) {
+		return false
+	}
+
+	if c.isNilOrigin(expr, newScope()) {
 		return true
 	}
 
 	id, isIdent := expr.(*ast.Ident)
-	if !isIdent {
+	if !isIdent || body == nil {
 		return false
 	}
 
-	return body != nil && c.identProvenInBlock(body, id.Name, at)
+	return c.identNilableInBlock(body, id.Name, at)
 }
 
-func funcBody(n ast.Node) *ast.BlockStmt {
-	switch f := n.(type) {
-	case *ast.FuncDecl:
-		return f.Body
-	case *ast.FuncLit:
-		return f.Body
-	default:
-		return nil
-	}
-}
+// identNilableInBlock reports whether name still holds a visibly nil value by
+// the time control reaches upTo, anywhere in body: declared with a nillable
+// type and no initializer, or assigned a value that is itself visibly nil,
+// with no later assignment clearing it. Nested statements count, since the
+// `var h Handler` / `switch { ... h = ... }` / `&t{base: h}` shape writes the
+// local from inside a clause, not from the body's own statement list.
+func (c *checker) identNilableInBlock(body *ast.BlockStmt, name string, upTo ast.Node) bool {
+	nilable := false
 
-type identAssignEffect int
-
-const (
-	identUnchanged identAssignEffect = iota
-	identDirectNonNil
-	identReassigned
-	identPendingCheck
-)
-
-// identProvenInBlock reports whether name is proven non-nil, by the time
-// control reaches upTo, from body's own statement list: either a direct
-// non-nil assignment, or a checked-error call (`name, err := f()` followed
-// by `if err != nil { <exits> }`) with nothing in between that unproves it.
-func (c *checker) identProvenInBlock(body *ast.BlockStmt, name string, upTo ast.Node) bool {
-	proven := false
-	pendingErr := ""
-
-	for _, stmt := range body.List {
-		if stmt.Pos() >= upTo.Pos() {
-			break
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil || n.Pos() >= upTo.Pos() {
+			return false
 		}
 
-		if pendingErr != "" {
-			if c.isCheckedErrorGuard(stmt, pendingErr) {
-				proven = true
+		switch s := n.(type) {
+		case *ast.DeclStmt:
+			if c.declaresNilLocal(s, name) {
+				nilable = true
 			}
-
-			pendingErr = ""
+		case *ast.AssignStmt:
+			if state, assigns := c.assignNilableState(s, name, body); assigns {
+				nilable = state
+			}
 		}
 
-		assign, isAssign := stmt.(*ast.AssignStmt)
-		if !isAssign {
+		return true
+	})
+
+	return nilable
+}
+
+// assignNilableState reports whether assign writes name at all, and whether the
+// value it writes is visibly nil. A multi-result assignment (`x, err := f()`)
+// writes a value this rule does not look into and counts as clearing, the same
+// as any other value with no visible nil origin.
+func (c *checker) assignNilableState(assign *ast.AssignStmt, name string, body *ast.BlockStmt) (bool, bool) {
+	idx := lhsIndex(assign, name)
+	if idx < 0 {
+		return false, false
+	}
+
+	if len(assign.Lhs) != len(assign.Rhs) {
+		return false, true
+	}
+
+	return c.isNilableValue(assign.Rhs[idx], assign, body), true
+}
+
+// declaresNilLocal reports whether decl declares name with a nillable type and
+// no initializer, which leaves it holding nil.
+func (c *checker) declaresNilLocal(decl *ast.DeclStmt, name string) bool {
+	gen, isGenDecl := decl.Decl.(*ast.GenDecl)
+	if !isGenDecl || gen.Tok != token.VAR {
+		return false
+	}
+
+	for _, spec := range gen.Specs {
+		vs, isValueSpec := spec.(*ast.ValueSpec)
+		if !isValueSpec || len(vs.Values) != 0 || vs.Type == nil {
 			continue
 		}
 
-		switch effect, errName := c.identAssignState(assign, name); effect {
-		case identDirectNonNil:
-			proven = true
-		case identReassigned:
-			proven = false
-		case identPendingCheck:
-			pendingErr = errName
-		case identUnchanged:
+		if !slices.ContainsFunc(vs.Names, func(id *ast.Ident) bool { return id.Name == name }) {
+			continue
+		}
+
+		if t := c.pass.TypesInfo.TypeOf(vs.Type); t != nil && isNillableKind(t) {
+			return true
 		}
 	}
 
-	return proven
-}
-
-// identAssignState reports the effect assign has on name: proven directly, a
-// plain reassignment that drops any earlier proof, or a two-result call
-// paired with a checked error, whose proof is pending on the guard that
-// follows.
-func (c *checker) identAssignState(assign *ast.AssignStmt, name string) (identAssignEffect, string) {
-	idx := lhsIndex(assign, name)
-	if idx < 0 {
-		return identUnchanged, ""
-	}
-
-	if len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
-		if c.isDefinitelyNonNil(assign.Rhs[0]) {
-			return identDirectNonNil, ""
-		}
-
-		return identReassigned, ""
-	}
-
-	if len(assign.Lhs) != 2 || len(assign.Rhs) != 1 {
-		return identReassigned, ""
-	}
-
-	if _, isCall := assign.Rhs[0].(*ast.CallExpr); !isCall {
-		return identReassigned, ""
-	}
-
-	errID, isIdent := assign.Lhs[1-idx].(*ast.Ident)
-	if !isIdent || !isErrorType(c.pass.TypesInfo.TypeOf(errID)) {
-		return identReassigned, ""
-	}
-
-	return identPendingCheck, errID.Name
+	return false
 }
 
 func lhsIndex(assign *ast.AssignStmt, name string) int {
@@ -658,23 +657,13 @@ func lhsIndex(assign *ast.AssignStmt, name string) int {
 	return -1
 }
 
-// isCheckedErrorGuard reports whether stmt is `if errName != nil { <exits> }`,
-// with no init statement and no else branch.
-func (c *checker) isCheckedErrorGuard(stmt ast.Stmt, errName string) bool {
-	ifStmt, isIf := stmt.(*ast.IfStmt)
-	if !isIf || ifStmt.Init != nil {
-		return false
+func funcBody(n ast.Node) *ast.BlockStmt {
+	switch f := n.(type) {
+	case *ast.FuncDecl:
+		return f.Body
+	case *ast.FuncLit:
+		return f.Body
+	default:
+		return nil
 	}
-
-	be, isBinary := ifStmt.Cond.(*ast.BinaryExpr)
-	if !isBinary || be.Op != token.NEQ {
-		return false
-	}
-
-	id, isIdent := be.X.(*ast.Ident)
-	if !isIdent || id.Name != errName || !c.isNilIdent(be.Y) {
-		return false
-	}
-
-	return c.blockExits(ifStmt.Body)
 }

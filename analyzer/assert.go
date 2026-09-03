@@ -9,18 +9,7 @@ import (
 // assertedArg reports the index of call's argument that is proven true when call
 // does not panic, if call resolves to a function carrying the assertHelper fact.
 func (c *checker) assertedArg(call *ast.CallExpr) (int, bool) {
-	var ident *ast.Ident
-
-	switch fun := ast.Unparen(call.Fun).(type) {
-	case *ast.Ident:
-		ident = fun
-	case *ast.SelectorExpr:
-		ident = fun.Sel
-	default:
-		return 0, false
-	}
-
-	fn, isFunc := c.resolve(ident).(*types.Func)
+	fn, isFunc := c.calleeFunc(call)
 	if !isFunc {
 		return 0, false
 	}

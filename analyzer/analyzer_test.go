@@ -51,6 +51,10 @@ func TestAnalyzer(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), New(Config{}), "nilsafereceiver")
 	})
 
+	t.Run("a nil-predicate call proves its argument on the false branch", func(t *testing.T) {
+		analysistest.Run(t, analysistest.TestData(), New(Config{}), "nilpredicate")
+	})
+
 	t.Run("a field wired non-nil by every construction in the package is not reported", func(t *testing.T) {
 		analysistest.Run(t, analysistest.TestData(), New(Config{}), "fieldwiring")
 	})

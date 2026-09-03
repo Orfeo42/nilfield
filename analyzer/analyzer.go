@@ -69,6 +69,7 @@ func New(cfg Config) *analysis.Analyzer {
 			(*nilSafeReceiver)(nil),
 			(*nilResults)(nil),
 			(*nonNilResults)(nil),
+			(*nilPredicate)(nil),
 		},
 	}
 
@@ -125,6 +126,10 @@ func run(pass *analysis.Pass, cfg Config) (any, error) {
 			}
 
 			if c.exportNonNilResultsFact(fd) {
+				exportedNew = true
+			}
+
+			if c.exportNilPredicateFact(fd) {
 				exportedNew = true
 			}
 		}

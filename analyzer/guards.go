@@ -75,6 +75,8 @@ func (c *checker) nilGuards(cond ast.Expr, sc scope) ([]string, []string) {
 		return straight, inverted
 	case *ast.BinaryExpr:
 		return c.binaryNilGuards(e, sc)
+	case *ast.CallExpr:
+		return c.callNilGuards(e, sc)
 	default:
 		return nil, nil
 	}

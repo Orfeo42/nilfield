@@ -129,8 +129,10 @@ func (f *fieldCleared) Use() {
 	f.dep.Do() // want "f\\.dep may be nil here"
 }
 
-// ExportedWired has the identical shape to wiredSingle, but is exported, so
-// the rule must not apply to it: external code can zero-construct it.
+// ExportedWired is exported, but its field is not: external code can
+// zero-construct the type, yet it can never write this field, so this
+// package's own constructions are still the complete set and the rule
+// applies.
 type ExportedWired struct {
 	dep depIface
 }
@@ -140,7 +142,22 @@ func newExportedWired() *ExportedWired { // want newExportedWired:"never returns
 }
 
 func (e *ExportedWired) Use() {
-	e.dep.Do() // want "e\\.dep may be nil here"
+	e.dep.Do()
+}
+
+// ExportedField is exported and so is its field, so an external composite
+// literal can set it or leave it nil and nothing here sees that: the rule
+// must not apply.
+type ExportedField struct {
+	Dep depIface
+}
+
+func newExportedField() *ExportedField { // want newExportedField:"never returns nil result 0"
+	return &ExportedField{Dep: &depImpl{}}
+}
+
+func (e *ExportedField) Use() {
+	e.Dep.Do() // want "e\\.Dep may be nil here"
 }
 
 // embeddedTarget is wired on its own, but it is embedded by value in the
@@ -216,4 +233,96 @@ func newTestOnlyPartial() *testOnlyPartial { // want newTestOnlyPartial:"never r
 
 func (t *testOnlyPartial) Use() {
 	t.dep.Do()
+}
+
+// paramWired is the ordinary constructor shape: the dependency arrives as a
+// parameter and is stored. A parameter with no visible nil origin is not
+// reported at its own uses, so it must not unwire the field it is stored in
+// either.
+type paramWired struct {
+	dep depIface
+}
+
+func newParamWired(dep depIface) *paramWired { // want newParamWired:"never returns nil result 0"
+	return &paramWired{dep: dep}
+}
+
+func (p *paramWired) Use() {
+	p.dep.Do()
+}
+
+// copiedField is constructed by copying the field off another instance, the
+// shape a Tx-style clone constructor uses.
+type copiedField struct {
+	dep depIface
+}
+
+func newCopiedField(dep depIface) *copiedField { // want newCopiedField:"never returns nil result 0"
+	return &copiedField{dep: dep}
+}
+
+func (c *copiedField) clone() *copiedField { // want clone:"never returns nil result 0"
+	return &copiedField{dep: c.dep}
+}
+
+func (c *copiedField) Use() {
+	c.dep.Do()
+}
+
+// ifaceResult is constructed from the result of an interface method, which
+// carries no fact of its own and is not a visible nil origin.
+type ifaceResult struct {
+	dep depIface
+}
+
+type depSource interface {
+	Get() depIface
+}
+
+func newIfaceResult(src depSource) *ifaceResult { // want newIfaceResult:"never returns nil result 0"
+	return &ifaceResult{dep: src.Get()}
+}
+
+func (i *ifaceResult) Use() {
+	i.dep.Do()
+}
+
+// switchAssigned is constructed from a local declared nil and then written
+// from inside a switch clause: the write is nested, not a statement of the
+// constructor's own list, and still clears the local's nil origin.
+type switchAssigned struct {
+	dep depIface
+}
+
+func newSwitchAssigned(mode int) *switchAssigned { // want newSwitchAssigned:"never returns nil result 0"
+	var dep depIface
+
+	switch mode {
+	case 0:
+		dep = &depImpl{}
+	default:
+		dep = &depImpl{}
+	}
+
+	return &switchAssigned{dep: dep}
+}
+
+func (s *switchAssigned) Use() {
+	s.dep.Do()
+}
+
+// declaredNil is constructed from a local declared with no initializer and
+// never written, which is a visible nil origin and must still unwire.
+type declaredNil struct {
+	dep depIface
+}
+
+func newDeclaredNil() *declaredNil { // want newDeclaredNil:"never returns nil result 0"
+	var dep depIface
+
+	return &declaredNil{dep: dep}
+}
+
+func (d *declaredNil) Use() {
+	d.dep.Do() // want "d\\.dep may be nil here"
 }
