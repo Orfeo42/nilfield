@@ -1,0 +1,13 @@
+package contextpair
+
+import (
+	"context"
+	"log/slog"
+)
+
+func f(ctx context.Context) {
+	slog.ErrorContext(ctx, "msg",
+		"k1", 1,
+		"k2", 2,
+	) // want "slog key-value arguments must each be on their own line"
+}

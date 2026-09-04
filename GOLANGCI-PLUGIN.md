@@ -1,5 +1,7 @@
 # Evaluation: shipping nilfield as a golangci-lint plugin
 
+Status note, later than the evaluation below: the plugin shipped, and the `plugin` package now makes three `register.Plugin` calls — `nilfield`, `droppederr` and `slogfmt`. `register.Plugin` writes into a plain map keyed by name, so one module can back several linters, and each is configured under its own `settings.custom.<name>` entry. golangci-lint builds a module plugin's linters without `WithAutoFix()`, but in v2 `CanAutoFix` only feeds `help linters` output: `pkg/goanalysis/runners.go` copies `SuggestedFixes` from every analyzer diagnostic and `pkg/result/processors/fixer.go` applies them, so a plugin analyzer's fixes are applied by `run --fix` like any other linter's. That is what `slogfmt` relies on.
+
 Verified against the golangci-lint documentation and source on 2026-09-02: the module plugin docs, `github.com/golangci/plugin-module-register`, the `example-plugin-module-linter` reference plugin, and `pkg/goanalysis` in golangci-lint itself.
 
 ## The two plugin systems

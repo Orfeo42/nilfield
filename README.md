@@ -6,6 +6,8 @@
 
 It is importable as `github.com/Orfeo42/nilfield/analyzer` and distributed as a standalone binary.
 
+The module also carries two companion analyzers, `droppederr` and `slogfmt`, described under [Companion linters](#companion-linters). All three register as separate golangci-lint linters, under their own names, inside the one `custom-gcl` binary this repository publishes.
+
 ## Install
 
 ```sh
@@ -101,6 +103,74 @@ out of scope: 7 not-a-dereference, 4 construction-site, 2 not-nil-analysis
 ```
 
 An out-of-scope case fails its own subtest if the analyzer reports anything inside it, which makes the scope boundary a build gate rather than a promise.
+
+## Companion linters
+
+Two further analyzers live in this module. They are unrelated to nil analysis and each other; they share the module only because a single Go module can register several golangci-lint plugins, and one `custom-gcl` binary is cheaper for consumers than several.
+
+Neither ships a standalone binary: they are reached through golangci-lint. Both read syntax only, so they declare `LoadModeSyntax` and cost no type-checking.
+
+```yaml
+linters:
+  enable:
+    - droppederr
+    - nilfield
+    - slogfmt
+  settings:
+    custom:
+      droppederr:
+        type: module
+        description: reports error-handling sites where the root cause never reaches the logs
+        settings:
+          exclude-paths: internal/dao/,_mock.go,_test.go
+          sql-utility-paths: src/utility/sql_utility/
+      slogfmt:
+        type: module
+        description: reports slog calls whose key-value pairs share a line, and splits them under --fix
+```
+
+### droppederr
+
+Reports error-handling sites where the root cause never reaches the logs, in two classes:
+
+- `DROPPED` — an `if err != nil { ... }` block whose body never references `err`, so the cause is discarded before any boundary can log it.
+- `SQLCLASS` — an error branch guarding a database call that raises through anything other than the project's query-error wrapper, collapsing duplicate key, foreign key violation, deadlock and data errors into one opaque class. A guard that branches on one of the wrapper's `Is*` predicates counts as classifying. Database calls nested inside a function literal are ignored, since their error is already propagated out through the closure's own return.
+
+The vocabulary it matches on is a project's own, so the package selectors are settings rather than constants:
+
+| setting | default | meaning |
+| --- | --- | --- |
+| `exclude-paths` | — | Comma-separated path fragments; a file whose slash-normalized path contains one is never reported. |
+| `sql-utility-paths` | — | Comma-separated path fragments; a file matching one is exempt from `SQLCLASS` only, so the wrapper's own package does not report itself. |
+| `sql-utility-package` | `sql_utility` | Package selector whose `WrapQueryError`/`Classify`/`Is*` predicates count as classifying. |
+| `domain-package` | `domain` | Package selector for the `Error`/`WrapError` wrappers and the `Err*` sentinels. |
+| `dao-package` | `dao` | Package selector whose calls count as database calls. |
+| `assert-package` | `utility` | Package selector for `AssertError`/`AssertErrorWithCode`. |
+
+### slogfmt
+
+Reports `slog` calls whose key-value arguments share a line, and attaches a suggested fix putting one pair per line — which `golangci-lint run --fix` applies, since golangci-lint carries `SuggestedFixes` through from any analyzer, plugins included. It satisfies sloglint's `args-on-sep-lines` rule while also fixing it; enabling both reports every call twice.
+
+```go
+slog.ErrorContext(ctx, "msg", "k1", v1, "k2", v2)
+```
+
+becomes
+
+```go
+slog.ErrorContext(ctx, "msg",
+	"k1", v1,
+	"k2", v2,
+)
+```
+
+A call whose arguments already sit one per line is left alone whatever they are: attribute-style arguments (`slog.String(...)` and friends) are single values, not key-value pairs, and pairing them two to a line would be wrong. A call already in the form above is silent too — its fix would be a no-op, and reporting it would leave a finding that `--fix` could never clear.
+
+Only package-level `slog.Xxx` calls are in scope; a call on a `*slog.Logger` value is not rewritten.
+
+| setting | default | meaning |
+| --- | --- | --- |
+| `exclude-paths` | — | Comma-separated path fragments; a file whose slash-normalized path contains one is never reported. |
 
 ## Documents
 
