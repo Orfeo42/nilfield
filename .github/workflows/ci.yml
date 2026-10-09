@@ -38,7 +38,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.13.2
+          version: v2.14.0
 
       - name: nilfield on its own source
         continue-on-error: true
